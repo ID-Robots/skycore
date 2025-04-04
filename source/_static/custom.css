@@ -1,0 +1,53 @@
+/* Custom styles for Sphinx RTD theme */
+
+/* Links */
+a {
+  color: #0969da;
+}
+
+.wy-menu-vertical a:active {
+  background-color: #0969da;
+}
+
+/* Side navigation */
+.wy-side-nav-search {
+  background-color: #0969da;
+}
+
+.wy-nav-top {
+  background-color: #0969da;
+}
+
+/* Version selector */
+.rst-versions .rst-current-version {
+  color: #0969da;
+}
+
+/* Highlighted text */
+.highlight {
+  border-left: 3px solid #0969da;
+}
+
+/* Admonitions styling */
+.admonition.note,
+.admonition.tip,
+.note,
+.tip {
+  border-left-color: #0969da;
+}
+
+/* Search highlighting */
+.highlighted {
+  background-color: #0969da;
+  color: white;
+}
+
+/* Button styling */
+.btn-neutral {
+  background-color: #0969da !important;
+  color: white !important;
+}
+
+.btn-neutral:hover {
+  background-color: #0865c9 !important;
+}
