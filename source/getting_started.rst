@@ -19,7 +19,7 @@ SSH into your Jetson device and install SkyCore CLI:
 
 .. code-block:: bash
 
-   curl -sL https://skyhub.ai/sc.tar.gz|tar xz && sudo bash skycore.sh
+   curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash skycore.sh
 
 SSD Flashing
 -----------
@@ -31,14 +31,7 @@ To flash SSD from the host Ubuntu system:
 
 .. code-block:: bash
 
-   sudo ssd.sh -d /dev/sda -i skycore.pcl.xz
-
-Available image files:
-
-.. code-block:: text
-
-   Jetson Super Nano | Orion NX - jetson-orion-ub-22-slam.pcl.xz
-   Jetson Nano - skycore.pcl.xz
+   skycore ssd -d /dev/sda -i skycore.pcl.xz
 
 Vehicle Registration
 -------------------
