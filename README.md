@@ -1,0 +1,2 @@
+# skycore
+SkyCore CLI
