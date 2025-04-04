@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.env
+venv/
+ENV/
+.venv
+.vscode/
+
+# Sphinx documentation
+docs/_build/
+.doctrees
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
