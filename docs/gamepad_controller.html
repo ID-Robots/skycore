@@ -1,172 +1,402 @@
-
-
 <!DOCTYPE html>
 <html class="writer-html5" lang="en" data-content_root="./">
-<head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Setup Gamepad Controller &mdash; SkyCore 0.0.1 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
-      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=eb63af6d" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Setup Gamepad Controller &mdash; SkyCore 0.0.1 documentation</title>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="_static/pygments.css?v=b86133f3"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="_static/css/theme.css?v=e59714d7"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="_static/custom.css?v=eb63af6d"
+    />
 
-  
-      <script src="_static/jquery.js?v=5d32c60e"></script>
-      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=d45e8c67"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/jquery.js?v=5d32c60e"></script>
+    <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+    <script src="_static/documentation_options.js?v=d45e8c67"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Examples" href="examples.html" />
-    <link rel="prev" title="Getting Started" href="getting_started.html" /> 
-</head>
+    <link rel="prev" title="Getting Started" href="getting_started.html" />
+  </head>
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search"  style="background: #0969da" >
-
-          
-          
-          <a href="index.html" class="icon icon-home">
-            SkyCore
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
-</div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Setup Gamepad Controller</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#connection-steps">Connection Steps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#button-mappings-for-rover">Button Mappings For Rover</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#button-mappings-for-drone">Button Mappings For Drone</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
-</ul>
-
+  <body class="wy-body-for-nav">
+    <div class="wy-grid-for-nav">
+      <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+        <div class="wy-side-scroll">
+          <div class="wy-side-nav-search" style="background: #0969da">
+            <a href="index.html" class="icon icon-home"> SkyCore </a>
+            <div role="search">
+              <form
+                id="rtd-search-form"
+                class="wy-form"
+                action="search.html"
+                method="get"
+              >
+                <input
+                  type="text"
+                  name="q"
+                  placeholder="Search docs"
+                  aria-label="Search docs"
+                />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+              </form>
+            </div>
+          </div>
+          <div
+            class="wy-menu wy-menu-vertical"
+            data-spy="affix"
+            role="navigation"
+            aria-label="Navigation menu"
+          >
+            <p class="caption" role="heading">
+              <span class="caption-text">Contents:</span>
+            </p>
+            <ul class="current">
+              <li class="toctree-l1">
+                <a class="reference internal" href="getting_started.html"
+                  >Getting Started</a
+                >
+              </li>
+              <li class="toctree-l1 current">
+                <a class="current reference internal" href="#"
+                  >Setup Gamepad Controller</a
+                >
+                <ul>
+                  <li class="toctree-l2">
+                    <a class="reference internal" href="#connection-steps"
+                      >Connection Steps</a
+                    >
+                  </li>
+                  <li class="toctree-l2">
+                    <a
+                      class="reference internal"
+                      href="#button-mappings-for-rover"
+                      >Button Mappings For Rover</a
+                    >
+                  </li>
+                  <li class="toctree-l2">
+                    <a
+                      class="reference internal"
+                      href="#button-mappings-for-drone"
+                      >Button Mappings For Drone</a
+                    >
+                  </li>
+                </ul>
+              </li>
+              <li class="toctree-l1">
+                <a class="reference internal" href="examples.html">Examples</a>
+              </li>
+              <li class="toctree-l1">
+                <a class="reference internal" href="api.html">API Reference</a>
+              </li>
+            </ul>
+          </div>
         </div>
-      </div>
-    </nav>
-
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu"  style="background: #0969da" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">SkyCore</a>
       </nav>
 
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Setup Gamepad Controller</li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="_sources/gamepad_controller.rst.txt" rel="nofollow"> View page source</a>
-      </li>
-  </ul>
-  <hr/>
-</div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
-  <section id="setup-gamepad-controller">
-<h1>Setup Gamepad Controller<a class="headerlink" href="#setup-gamepad-controller" title="Link to this heading"></a></h1>
-<p>SkyHub Supports controlling the vehicles with Gamepad. The system was tested with Play Station 4 and Play Station 5 controllers, but other controllers supporting the <a class="reference external" href="https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API/Using_the_Gamepad_API">Browser Gamepad API</a> will work.</p>
-<section id="connection-steps">
-<h2>Connection Steps<a class="headerlink" href="#connection-steps" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
-<li><p>Pair the controller to the phone, tablet, or PC</p></li>
-<li><p>Test if the gamepad is detected on <a class="reference external" href="https://hardwaretester.com/gamepad">https://hardwaretester.com/gamepad</a></p></li>
-<li><p>Login in SkyHub: <a class="reference external" href="https://skyhub.ai/#/home">https://skyhub.ai</a></p></li>
-<li><p>Select a vehicle from the web interface and move any gamepad button to connect the gamepad. A web socket connection will be established to the selected drone.</p></li>
-<li><p>Enter MANUAL/LOITER mode for Vehicle control.</p></li>
-</ol>
-<figure class="align-default" id="id1">
-<a class="reference internal image-reference" href="https://idrobots.com/wp-content/uploads/2025/01/ps5-1024x458.png"><img alt="PlayStation controller with SkyHub" src="https://idrobots.com/wp-content/uploads/2025/01/ps5-1024x458.png" style="width: 100%;" />
-</a>
-<figcaption>
-<p><span class="caption-text">PlayStation controller connected to SkyHub interface</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
-</figcaption>
-</figure>
-</section>
-<section id="button-mappings-for-rover">
-<h2>Button Mappings For Rover<a class="headerlink" href="#button-mappings-for-rover" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p><strong>Triangle (△)</strong> - Guided Mode</p></li>
-<li><p><strong>Circle (○)</strong> - Auto Mode</p></li>
-<li><p><strong>Cross (×)</strong> - Lights</p></li>
-<li><p><strong>Square (□)</strong> - Manual Mode</p></li>
-<li><p><strong>Up / Down / Left / Right</strong> - Camera gimble</p></li>
-<li><p><strong>L1</strong> - Take Photo</p></li>
-<li><p><strong>R1</strong> - Toggle Recording Video</p></li>
-<li><p><strong>L2</strong> - Throttle Backward</p></li>
-<li><p><strong>R2</strong> - Throttle Forward</p></li>
-<li><p><strong>Left Stick</strong> - Left / Right</p></li>
-<li><p><strong>Right Stick</strong> - Nothing</p></li>
-<li><p><strong>Right Options</strong> - Arm / Disarm</p></li>
-<li><p><strong>Left Options</strong> - Camera point forward</p></li>
-</ul>
-</section>
-<section id="button-mappings-for-drone">
-<h2>Button Mappings For Drone<a class="headerlink" href="#button-mappings-for-drone" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p><strong>Triangle (△)</strong> - Guided Mode</p></li>
-<li><p><strong>Circle (○)</strong> - Auto Mode</p></li>
-<li><p><strong>Cross (×)</strong> - Nothing</p></li>
-<li><p><strong>Square (□)</strong> - Loiter mode</p></li>
-<li><p><strong>Up / Down / Left / Right</strong> - Camera gimble</p></li>
-<li><p><strong>L1</strong> - Take Photo</p></li>
-<li><p><strong>R1</strong> - Toggle Recording Video</p></li>
-<li><p><strong>L2</strong> - Nothing</p></li>
-<li><p><strong>R2</strong> - Nothing</p></li>
-<li><p><strong>Left Stick</strong> - Throttle Control</p></li>
-<li><p><strong>Right Stick</strong> - Attitude Control</p></li>
-<li><p><strong>Right Options</strong> - Arm / Disarm</p></li>
-<li><p><strong>Left Options</strong> - Camera point forward</p></li>
-</ul>
-</section>
-</section>
+      <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+        <nav
+          class="wy-nav-top"
+          aria-label="Mobile navigation menu"
+          style="background: #0969da"
+        >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">SkyCore</a>
+        </nav>
 
+        <div class="wy-nav-content">
+          <div class="rst-content">
+            <div role="navigation" aria-label="Page navigation">
+              <ul class="wy-breadcrumbs">
+                <li>
+                  <a
+                    href="index.html"
+                    class="icon icon-home"
+                    aria-label="Home"
+                  ></a>
+                </li>
+                <li class="breadcrumb-item active">Setup Gamepad Controller</li>
+                <li class="wy-breadcrumbs-aside">
+                  <a href="_sources/gamepad_controller.rst.txt" rel="nofollow">
+                    View page source</a
+                  >
+                </li>
+              </ul>
+              <hr />
+            </div>
+            <div
+              role="main"
+              class="document"
+              itemscope="itemscope"
+              itemtype="http://schema.org/Article"
+            >
+              <div itemprop="articleBody">
+                <section id="setup-gamepad-controller">
+                  <h1>
+                    Setup Gamepad Controller<a
+                      class="headerlink"
+                      href="#setup-gamepad-controller"
+                      title="Link to this heading"
+                      ></a
+                    >
+                  </h1>
+                  <p>
+                    SkyHub Supports controlling the vehicles with Gamepad. The
+                    system was tested with Play Station 4 and Play Station 5
+                    controllers, but other controllers supporting the
+                    <a
+                      class="reference external"
+                      href="https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API/Using_the_Gamepad_API"
+                      >Browser Gamepad API</a
+                    >
+                    will work.
+                  </p>
+                  <section id="connection-steps">
+                    <h2>
+                      Connection Steps<a
+                        class="headerlink"
+                        href="#connection-steps"
+                        title="Link to this heading"
+                        ></a
+                      >
+                    </h2>
+                    <ol class="arabic simple">
+                      <li>
+                        <p>Pair the controller to the phone, tablet, or PC</p>
+                      </li>
+                      <li>
+                        <p>
+                          Test if the gamepad is detected on
+                          <a
+                            class="reference external"
+                            href="https://hardwaretester.com/gamepad"
+                            >https://hardwaretester.com/gamepad</a
+                          >
+                        </p>
+                      </li>
+                      <li>
+                        <p>
+                          Login in SkyHub:
+                          <a
+                            class="reference external"
+                            href="https://skyhub.ai/#/home"
+                            >https://skyhub.ai</a
+                          >
+                        </p>
+                      </li>
+                      <li>
+                        <p>
+                          Select a vehicle from the web interface and move any
+                          gamepad button to connect the gamepad. A web socket
+                          connection will be established to the selected drone.
+                        </p>
+                      </li>
+                      <li>
+                        <p>Enter MANUAL/LOITER mode for Vehicle control.</p>
+                      </li>
+                    </ol>
+                    <figure class="align-default" id="id1">
+                      <a
+                        class="reference internal image-reference"
+                        href="https://idrobots.com/wp-content/uploads/2025/01/ps5-1024x458.png"
+                        ><img
+                          alt="PlayStation controller with SkyHub"
+                          src="https://idrobots.com/wp-content/uploads/2025/01/ps5-1024x458.png"
+                          style="width: 100%"
+                        />
+                      </a>
+                      <figcaption>
+                        <p>
+                          <span class="caption-text"
+                            >PlayStation controller connected to SkyHub
+                            interface</span
+                          ><a
+                            class="headerlink"
+                            href="#id1"
+                            title="Link to this image"
+                            ></a
+                          >
+                        </p>
+                      </figcaption>
+                    </figure>
+                  </section>
+                  <section id="button-mappings-for-rover">
+                    <h2>
+                      Button Mappings For Rover<a
+                        class="headerlink"
+                        href="#button-mappings-for-rover"
+                        title="Link to this heading"
+                        ></a
+                      >
+                    </h2>
+                    <ul class="simple">
+                      <li>
+                        <p><strong>Triangle (△)</strong> - Guided Mode</p>
+                      </li>
+                      <li>
+                        <p><strong>Circle (○)</strong> - Auto Mode</p>
+                      </li>
+                      <li>
+                        <p><strong>Cross (×)</strong> - Lights</p>
+                      </li>
+                      <li>
+                        <p><strong>Square (□)</strong> - Manual Mode</p>
+                      </li>
+                      <li>
+                        <p>
+                          <strong>Up / Down / Left / Right</strong> - Camera
+                          gimble
+                        </p>
+                      </li>
+                      <li>
+                        <p><strong>L1</strong> - Take Photo</p>
+                      </li>
+                      <li>
+                        <p><strong>R1</strong> - Toggle Recording Video</p>
+                      </li>
+                      <li>
+                        <p><strong>L2</strong> - Throttle Backward</p>
+                      </li>
+                      <li>
+                        <p><strong>R2</strong> - Throttle Forward</p>
+                      </li>
+                      <li>
+                        <p><strong>Left Stick</strong> - Left / Right</p>
+                      </li>
+                      <li>
+                        <p><strong>Right Stick</strong> - Nothing</p>
+                      </li>
+                      <li>
+                        <p><strong>Right Options</strong> - Arm / Disarm</p>
+                      </li>
+                      <li>
+                        <p>
+                          <strong>Left Options</strong> - Camera point forward
+                        </p>
+                      </li>
+                    </ul>
+                  </section>
+                  <section id="button-mappings-for-drone">
+                    <h2>
+                      Button Mappings For Drone<a
+                        class="headerlink"
+                        href="#button-mappings-for-drone"
+                        title="Link to this heading"
+                        ></a
+                      >
+                    </h2>
+                    <ul class="simple">
+                      <li>
+                        <p><strong>Triangle (△)</strong> - Guided Mode</p>
+                      </li>
+                      <li>
+                        <p><strong>Circle (○)</strong> - Auto Mode</p>
+                      </li>
+                      <li>
+                        <p><strong>Cross (×)</strong> - Nothing</p>
+                      </li>
+                      <li>
+                        <p><strong>Square (□)</strong> - Loiter mode</p>
+                      </li>
+                      <li>
+                        <p>
+                          <strong>Up / Down / Left / Right</strong> - Camera
+                          gimble
+                        </p>
+                      </li>
+                      <li>
+                        <p><strong>L1</strong> - Take Photo</p>
+                      </li>
+                      <li>
+                        <p><strong>R1</strong> - Toggle Recording Video</p>
+                      </li>
+                      <li>
+                        <p><strong>L2</strong> - Nothing</p>
+                      </li>
+                      <li>
+                        <p><strong>R2</strong> - Nothing</p>
+                      </li>
+                      <li>
+                        <p><strong>Left Stick</strong> - Throttle Control</p>
+                      </li>
+                      <li>
+                        <p><strong>Right Stick</strong> - Attitude Control</p>
+                      </li>
+                      <li>
+                        <p><strong>Right Options</strong> - Arm / Disarm</p>
+                      </li>
+                      <li>
+                        <p>
+                          <strong>Left Options</strong> - Camera point forward
+                        </p>
+                      </li>
+                    </ul>
+                  </section>
+                </section>
+              </div>
+            </div>
+            <footer>
+              <div
+                class="rst-footer-buttons"
+                role="navigation"
+                aria-label="Footer"
+              >
+                <a
+                  href="getting_started.html"
+                  class="btn btn-neutral float-left"
+                  title="Getting Started"
+                  accesskey="p"
+                  rel="prev"
+                  ><span
+                    class="fa fa-arrow-circle-left"
+                    aria-hidden="true"
+                  ></span>
+                  Previous</a
+                >
+                <a
+                  href="examples.html"
+                  class="btn btn-neutral float-right"
+                  title="Examples"
+                  accesskey="n"
+                  rel="next"
+                  >Next
+                  <span
+                    class="fa fa-arrow-circle-right"
+                    aria-hidden="true"
+                  ></span
+                ></a>
+              </div>
 
-           </div>
+              <hr />
+
+              <div role="contentinfo">
+                <p>&#169; Copyright 2025, ID Robots.</p>
+              </div>
+            </footer>
           </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="getting_started.html" class="btn btn-neutral float-left" title="Getting Started" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="examples.html" class="btn btn-neutral float-right" title="Examples" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
-
-  <hr/>
-
-  <div role="contentinfo">
-    <p>&#169; Copyright 2025, ID Robots.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
         </div>
-      </div>
-    </section>
-  </div>
-  <script>
+      </section>
+    </div>
+    <script>
       jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
+        SphinxRtdTheme.Navigation.enable(true);
       });
-  </script> 
-
-</body>
+    </script>
+  </body>
 </html>

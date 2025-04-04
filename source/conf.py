@@ -35,4 +35,9 @@ html_css_files = [
 # Theme options
 html_theme_options = {
     'style_nav_header_background': '#0969da',
+    'logo_only': True,
 }
+
+# Logo configuration
+html_logo = '_static/images/logo.svg'
+html_show_sphinx = False

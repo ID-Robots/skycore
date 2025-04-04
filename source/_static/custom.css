@@ -11,7 +11,9 @@ a {
 
 /* Side navigation */
 .wy-side-nav-search {
-  background-color: #0969da;
+  background-color: white !important;
+  background: white !important;
+  border-right: 1px solid #c9c9c9;
 }
 
 .wy-nav-top {
@@ -50,4 +52,62 @@ a {
 
 .btn-neutral:hover {
   background-color: #0865c9 !important;
+}
+
+/* Hide Sphinx footer text */
+.rst-other-versions,
+.rst-other-versions a,
+.rst-other-versions .rst-other-versions-title,
+.rst-other-versions .rst-other-versions-item {
+  display: none !important;
+}
+
+/* Custom styles for Sphinx documentation */
+
+/* Override Read the Docs theme accent color */
+:root {
+  --color-brand-primary: #0969da;
+  --color-brand-content: #0969da;
+}
+
+/* Make text inside neutral buttons white */
+.btn-neutral {
+  color: white !important;
+}
+
+/* Add custom styles for the documentation */
+.wy-nav-content {
+  max-width: 1200px;
+}
+
+/* Style for code blocks */
+.highlight {
+  background: #f8f9fa;
+  border-radius: 4px;
+  padding: 1em;
+}
+
+/* Style for admonitions */
+.admonition {
+  border-radius: 4px;
+  padding: 1em;
+  margin: 1em 0;
+}
+
+/* Style for tables */
+.wy-table-responsive table td,
+.wy-table-responsive table th {
+  white-space: normal;
+}
+
+/* Style for navigation */
+.wy-side-nav-search {
+  background-color: white !important;
+  background: white !important;
+  border-right: 1px solid #c9c9c9;
+}
+
+/* Style for links */
+a:hover {
+  color: #0a4ba3;
 }
