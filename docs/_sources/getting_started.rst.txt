@@ -3,6 +3,15 @@ Getting Started
 
 Welcome to SkyCore! This guide will help you install and get started with SkyCore.
 
+SkyHub Registration
+------------------
+
+Before you begin, you'll need to create a SkyHub account:
+
+1. Register for SkyHub at `https://skyhub.ai/register <https://skyhub.ai/register>`_
+2. Verify your email address
+3. Log in to access the SkyHub dashboard
+
 Installation
 -----------
 
