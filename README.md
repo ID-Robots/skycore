@@ -19,7 +19,7 @@ For detailed documentation, visit: [SkyCore Documentation](https://id-robots.git
 SSH into your Jetson device and install SkyCore CLI:
 
 ```bash
-curl -sL https://skyhub.ai/sc.tar.gz|tar xz && sudo bash skycore.sh
+curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash skycore.sh
 ```
 
 ### Vehicle Registration
@@ -31,10 +31,77 @@ Add a new vehicle to SkyHub by visiting: [https://skyhub.ai/home?dialog=app-crea
 Activate your drone with the following command:
 
 ```bash
-sudo activate.sh <drone_token>
+sudo skycore activate <drone_token>
 ```
 
-## Development
+For more details on activation options and troubleshooting, see the [Activation Documentation](https://id-robots.github.io/skycore/activate.html).
+
+### Cloning Drives
+
+SkyCore includes a powerful drive cloning feature to backup your Jetson device:
+
+```bash
+sudo skycore clone --source /dev/nvme0n1 [options]
+```
+
+Common options:
+
+- `--compress`: Compress image files (using lz4 or gzip)
+- `--output PATH`: Set custom output directory
+- `--archive NAME`: Create a tar.gz archive of all partitions
+
+Example (create a compressed backup archive):
+
+```bash
+sudo skycore clone --source /dev/nvme0n1 --compress --archive my_jetson_backup
+```
+
+To restore a backup to a new drive:
+
+```bash
+sudo skycore flash --target /dev/sdX --archive /path/to/my_jetson_backup.tar.gz
+```
+
+For more details, see the [Cloning Documentation](https://id-robots.github.io/skycore/clone.html).
+
+### Flashing Drives
+
+SkyCore provides a flexible drive flashing tool to restore backups or download and flash Jetson images:
+
+```bash
+sudo skycore flash --target /dev/sdX [options]
+```
+
+Common options:
+
+- `--archive PATH`: Flash from a local backup archive
+- `--input PATH`: Flash from a directory containing partition images
+- `--bucket URL`: Specify a custom S3 bucket URL
+- `--image NAME`: Download and flash a specific image from S3
+
+Examples:
+
+Download and flash the default Orion Nano image:
+
+```bash
+sudo skycore flash --target /dev/sdX
+```
+
+Flash from a local backup archive:
+
+```bash
+sudo skycore flash --target /dev/sdX --archive /path/to/backup.tar.gz
+```
+
+Download a custom image from S3:
+
+```bash
+sudo skycore flash --target /dev/sdX --bucket s3://custom-bucket --image custom-image.tar.gz
+```
+
+For more details, see the [Flashing Documentation](https://id-robots.github.io/skycore/flash.html).
+
+## Sphinx Documentation Update
 
 ### Building Documentation
 

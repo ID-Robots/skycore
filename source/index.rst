@@ -16,4 +16,8 @@ This documentation will guide you through the installation, configuration, and u
 
    getting_started
    gamepad_controller
+   skycore_cli
+   clone
+   flash
+   activate
 

@@ -1,0 +1,265 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkyCore CLI Tool &mdash; SkyCore 0.0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=b0e4d6fd" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=d45e8c67"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Cloning Drives" href="clone.html" />
+    <link rel="prev" title="Setup Gamepad Controller" href="gamepad_controller.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search"  style="background: #0969da" >
+
+          
+          
+          <a href="index.html">
+            
+              <img src="_static/logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gamepad_controller.html">Setup Gamepad Controller</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">SkyCore CLI Tool</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#available-commands">Available Commands</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#navigation-source-management">Navigation Source Management</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#position-and-configuration">Position and Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#communication">Communication</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#system-operations">System Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#parameter-management">Parameter Management</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#switch-to-slam-navigation">Switch to SLAM Navigation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#export-all-parameters">Export All Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#set-custom-ekf-origin">Set Custom EKF Origin</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#perform-a-full-system-restart">Perform a Full System Restart</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#connection-issues">Connection Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#missing-dependencies">Missing Dependencies</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="clone.html">Cloning Drives</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu"  style="background: #0969da" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">SkyCore</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">SkyCore CLI Tool</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/skycore_cli.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="skycore-cli-tool">
+<h1>SkyCore CLI Tool<a class="headerlink" href="#skycore-cli-tool" title="Link to this heading"></a></h1>
+<p>The SkyCore CLI is a command-line interface for managing navigation sources and related operations for a drone or robot using ArduPilot. It provides functionality for switching between GPS and SLAM navigation, setting parameters, monitoring position, and performing various system operations.</p>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
+<p>The SkyCore CLI tool is included in the SkyCore installer. No additional installation is required.</p>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<p>The tool requires the following Python dependencies:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">requests</span></code> - For HTTP communications</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pymavlink</span></code> - For MAVLink communications with ArduPilot</p></li>
+</ul>
+<p>Missing dependencies will be detected when you run the tool, and you’ll be prompted to install them.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<p>To start the CLI tool in interactive mode:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">./</span><span class="n">skycore_cli</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>To execute a specific command directly:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">./</span><span class="n">skycore_cli</span><span class="o">.</span><span class="n">py</span> <span class="o">&lt;</span><span class="n">command</span><span class="o">&gt;</span> <span class="p">[</span><span class="n">args</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="available-commands">
+<h2>Available Commands<a class="headerlink" href="#available-commands" title="Link to this heading"></a></h2>
+<section id="navigation-source-management">
+<h3>Navigation Source Management<a class="headerlink" href="#navigation-source-management" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gps</span></code> - Switch to GPS navigation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">slam</span></code> - Switch to SLAM navigation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">status</span></code> - Show current navigation source</p></li>
+</ul>
+</section>
+<section id="position-and-configuration">
+<h3>Position and Configuration<a class="headerlink" href="#position-and-configuration" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ekf</span></code> - Set EKF origin and home position to 0,0,0</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">custom_ekf</span></code> - Set EKF origin and home position with custom coordinates</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">monitor</span></code> - Monitor position for 30 seconds</p></li>
+</ul>
+</section>
+<section id="communication">
+<h3>Communication<a class="headerlink" href="#communication" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">listen</span></code> - Listen for MAVLink messages from Pixhawk</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">recent_msgs</span></code> - Show the last 30 Pixhawk messages</p></li>
+</ul>
+</section>
+<section id="system-operations">
+<h3>System Operations<a class="headerlink" href="#system-operations" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">reboot</span></code> - Reboot ArduPilot</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">full_restart</span></code> - Perform a full system restart including ArduPilot and SLAM container</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">clean_sd</span></code> - Clean the SD card</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">reset_params</span></code> - Reset parameters to default values</p></li>
+</ul>
+</section>
+<section id="parameter-management">
+<h3>Parameter Management<a class="headerlink" href="#parameter-management" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">get_param</span></code> - Get a parameter value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">set_param</span></code> - Set a parameter value</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">export_params</span></code> - Export all parameters to a file</p></li>
+</ul>
+</section>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h2>
+<section id="switch-to-slam-navigation">
+<h3>Switch to SLAM Navigation<a class="headerlink" href="#switch-to-slam-navigation" title="Link to this heading"></a></h3>
+<p>To switch from GPS to SLAM-based navigation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">./</span><span class="n">skycore_cli</span><span class="o">.</span><span class="n">py</span> <span class="n">slam</span>
+</pre></div>
+</div>
+</section>
+<section id="export-all-parameters">
+<h3>Export All Parameters<a class="headerlink" href="#export-all-parameters" title="Link to this heading"></a></h3>
+<p>To export all ArduPilot parameters to a file:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">./</span><span class="n">skycore_cli</span><span class="o">.</span><span class="n">py</span> <span class="n">export_params</span> <span class="n">my_params</span><span class="o">.</span><span class="n">txt</span>
+</pre></div>
+</div>
+</section>
+<section id="set-custom-ekf-origin">
+<h3>Set Custom EKF Origin<a class="headerlink" href="#set-custom-ekf-origin" title="Link to this heading"></a></h3>
+<p>To set a custom EKF origin and home position, use the interactive mode:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">./</span><span class="n">skycore_cli</span><span class="o">.</span><span class="n">py</span> <span class="n">custom_ekf</span>
+</pre></div>
+</div>
+<p>You’ll be prompted to enter latitude, longitude, and altitude values.</p>
+</section>
+<section id="perform-a-full-system-restart">
+<h3>Perform a Full System Restart<a class="headerlink" href="#perform-a-full-system-restart" title="Link to this heading"></a></h3>
+<p>To perform a complete system restart, including ArduPilot and the SLAM container:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">./</span><span class="n">skycore_cli</span><span class="o">.</span><span class="n">py</span> <span class="n">full_restart</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="connection-issues">
+<h3>Connection Issues<a class="headerlink" href="#connection-issues" title="Link to this heading"></a></h3>
+<p>If the tool cannot connect to ArduPilot, check that:</p>
+<ol class="arabic simple">
+<li><p>The Pixhawk or flight controller is properly connected to your computer</p></li>
+<li><p>You have the necessary permissions to access the serial port</p></li>
+<li><p>No other application is currently using the MAVLink connection</p></li>
+</ol>
+<p>To identify available connection methods, the tool tries multiple common configurations:</p>
+<ul class="simple">
+<li><p>Serial ports: <code class="docutils literal notranslate"><span class="pre">/dev/ttyACM0</span></code>, <code class="docutils literal notranslate"><span class="pre">/dev/ttyACM1</span></code>, <code class="docutils literal notranslate"><span class="pre">/dev/ttyUSB0</span></code>, <code class="docutils literal notranslate"><span class="pre">/dev/ttyUSB1</span></code></p></li>
+<li><p>UDP connections: <code class="docutils literal notranslate"><span class="pre">udpin:127.0.0.1:14550</span></code>, <code class="docutils literal notranslate"><span class="pre">udpin:127.0.0.1:14551</span></code>, etc.</p></li>
+</ul>
+</section>
+<section id="missing-dependencies">
+<h3>Missing Dependencies<a class="headerlink" href="#missing-dependencies" title="Link to this heading"></a></h3>
+<p>If you see an error about missing dependencies:</p>
+<ol class="arabic">
+<li><p>Allow the tool to install them automatically when prompted</p></li>
+<li><p>Or install them manually using pip:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">pymavlink</span> <span class="n">requests</span>
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gamepad_controller.html" class="btn btn-neutral float-left" title="Setup Gamepad Controller" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="clone.html" class="btn btn-neutral float-right" title="Cloning Drives" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, ID Robots.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
