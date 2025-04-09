@@ -850,11 +850,33 @@ activate_drone() {
     # Make sure WireGuard directory exists
     mkdir -p /etc/wireguard
 
+    # Wait a bit before requesting the configuration file
+    echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
+    sleep 3
+
     # Now download VPN configuration after ensuring WireGuard is working
     echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
     curl -o /etc/wireguard/wg0.conf "$vpn_url"
     if [ $? -ne 0 ]; then
         echo -e "${RED}[✖]${NC} Failed to download Drone VPN file"
+        exit 1
+    fi
+
+    # Validate the configuration file - check if it's XML instead of WireGuard config
+    if grep -q "<?xml" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (XML detected)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
+        echo -e "${YELLOW}[⋯]${NC} The download URL may be expired or invalid."
+        echo -e "${YELLOW}[⋯]${NC} Please try activating again with a new token."
+        exit 1
+    fi
+
+    # Validate the configuration has required WireGuard sections
+    if ! grep -q "\[Interface\]" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (missing [Interface] section)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
         exit 1
     fi
 
