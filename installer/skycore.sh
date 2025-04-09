@@ -811,9 +811,46 @@ activate_drone() {
         install_wireguard
     fi
 
+    # Verify WireGuard is working
+    echo -e "${YELLOW}[⋯]${NC} Verifying WireGuard installation..."
+    
+    # Check for WireGuard command line tool
+    if ! command -v wg >/dev/null 2>&1; then
+        echo -e "${YELLOW}[⋯]${NC} WireGuard tools not detected after installation. Trying again..."
+        install_wireguard
+        
+        # Verify again after second installation attempt
+        if ! command -v wg >/dev/null 2>&1; then
+            echo -e "${RED}[✖]${NC} Failed to install WireGuard properly."
+            exit 1
+        fi
+    fi
+    
+    # Check for wireguard-go (userspace implementation) if needed
+    if ! modprobe wireguard 2>/dev/null; then
+        echo -e "${YELLOW}[⋯]${NC} WireGuard kernel module not available, checking userspace implementation..."
+        if ! command -v wireguard-go >/dev/null 2>&1; then
+            echo -e "${YELLOW}[⋯]${NC} Userspace implementation not found. Installing..."
+            install_wireguard
+            
+            if ! command -v wireguard-go >/dev/null 2>&1; then
+                echo -e "${RED}[✖]${NC} Failed to install WireGuard userspace implementation."
+                exit 1
+            fi
+        fi
+        
+        # Create userspace override if not already created
+        mkdir -p /etc/systemd/system/wg-quick@wg0.service.d/
+        echo -e '[Service]\nEnvironment="WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go"' > /etc/systemd/system/wg-quick@wg0.service.d/override.conf
+        systemctl daemon-reload
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} WireGuard is properly installed and ready"
+
     # Make sure WireGuard directory exists
     mkdir -p /etc/wireguard
 
+    # Now download VPN configuration after ensuring WireGuard is working
     echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
     curl -o /etc/wireguard/wg0.conf "$vpn_url"
     if [ $? -ne 0 ]; then
@@ -830,17 +867,24 @@ activate_drone() {
 
     # Stop WireGuard if it's already running
     systemctl stop wg-quick@wg0 >/dev/null 2>&1
+    sleep 2  # Short pause to ensure service has completely stopped
 
     # Try to start the WireGuard service
     if ! systemctl start wg-quick@wg0; then
-        echo -e "${YELLOW}[⋯]${NC} Failed to start WireGuard service. Trying to set up userspace mode..."
-        install_wireguard
-        systemctl daemon-reload
-        
-        if ! systemctl start wg-quick@wg0; then
-            echo -e "${RED}[✖]${NC} Failed to start WireGuard service even with userspace implementation."
-            exit 1
-        fi
+        echo -e "${RED}[✖]${NC} Failed to start WireGuard service. Please check the configuration."
+        systemctl status wg-quick@wg0
+        exit 1
+    fi
+
+    # Wait for the VPN connection to establish
+    echo -e "${YELLOW}[⋯]${NC} Waiting for VPN connection to establish..."
+    sleep 5
+
+    # Verify VPN connection
+    if ! wg show wg0 >/dev/null 2>&1; then
+        echo -e "${RED}[✖]${NC} VPN connection failed to establish."
+        systemctl status wg-quick@wg0
+        exit 1
     fi
 
     echo -e "${GREEN}[✔]${NC} VPN connection established"
