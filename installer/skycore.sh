@@ -22,6 +22,92 @@ BLUE='\e[34m'
 PURPLE='\e[35m'
 NC='\e[0m' # No Color
 
+# Install WireGuard functionality
+install_wireguard() {
+    echo -e "${YELLOW}[⋯]${NC} Installing WireGuard..."
+    
+    # Install WireGuard tools
+    apt-get update -y
+    apt-get install -y wireguard wireguard-tools git curl
+
+    # Check if kernel module is available
+    if modprobe wireguard 2>/dev/null; then
+        echo -e "${GREEN}[✔]${NC} WireGuard kernel module is available."
+        return 0
+    fi
+    
+    echo -e "${YELLOW}[⋯]${NC} WireGuard kernel module not available. Setting up userspace implementation..."
+    
+    # Install latest Go
+    echo -e "${YELLOW}[⋯]${NC} Installing latest Go..."
+    cd /tmp
+    GO_VERSION="1.22.1"  # Hardcode to a known working version for stability
+    GO_PACKAGE="go${GO_VERSION}.linux-arm64.tar.gz"
+    curl -sLO "https://go.dev/dl/${GO_PACKAGE}"
+    
+    if [ ! -f "${GO_PACKAGE}" ]; then
+        echo -e "${RED}[✖]${NC} Failed to download Go. Using fallback method..."
+        GO_PACKAGE="go1.22.0.linux-arm64.tar.gz"
+        curl -sLO "https://go.dev/dl/${GO_PACKAGE}"
+    fi
+    
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf "${GO_PACKAGE}"
+    
+    # Add Go to system PATH
+    echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/golang.sh
+    chmod +x /etc/profile.d/golang.sh
+    
+    # Set Go binary path for direct use (avoids PATH issues in current shell)
+    GO_BIN="/usr/local/go/bin/go"
+    echo -e "${GREEN}[✔]${NC} Latest Go installed at /usr/local/go: $($GO_BIN version)"
+    
+    # Clone and build latest wireguard-go with specific version (0.0.20230223 is known to work with Go 1.20+)
+    echo -e "${YELLOW}[⋯]${NC} Building wireguard-go..."
+    cd /tmp
+    rm -rf wireguard-go*
+    
+    # First try latest
+    git clone https://git.zx2c4.com/wireguard-go
+    cd wireguard-go
+    
+    if ! PATH="/usr/local/go/bin:$PATH" make; then
+        echo -e "${YELLOW}[⋯]${NC} Failed to build latest wireguard-go. Trying stable release..."
+        cd /tmp
+        rm -rf wireguard-go
+        curl -sLO https://git.zx2c4.com/wireguard-go/snapshot/wireguard-go-0.0.20230223.tar.xz
+        tar -xf wireguard-go-0.0.20230223.tar.xz
+        cd wireguard-go-0.0.20230223
+        
+        if ! PATH="/usr/local/go/bin:$PATH" make; then
+            echo -e "${RED}[✖]${NC} Failed to build wireguard-go. Trying older compatible version..."
+            cd /tmp
+            rm -rf wireguard-go*
+            curl -sLO https://git.zx2c4.com/wireguard-go/snapshot/wireguard-go-0.0.20220316.tar.xz
+            tar -xf wireguard-go-0.0.20220316.tar.xz
+            cd wireguard-go-0.0.20220316
+            PATH="/usr/local/go/bin:$PATH" make
+        fi
+    fi
+    
+    PATH="/usr/local/go/bin:$PATH" make install
+    
+    # Create systemd override to use userspace implementation
+    mkdir -p /etc/systemd/system/wg-quick@wg0.service.d/
+    echo -e '[Service]\nEnvironment="WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go"' > /etc/systemd/system/wg-quick@wg0.service.d/override.conf
+    systemctl daemon-reload
+    
+    # Verify installation
+    if command -v wireguard-go >/dev/null 2>&1; then
+        echo -e "${GREEN}[✔]${NC} WireGuard userspace implementation installed: $(wireguard-go --version 2>&1 || echo 'version unavailable')"
+    else
+        echo -e "${RED}[✖]${NC} Failed to install wireguard-go. VPN functionality may be limited."
+    fi
+    
+    # Notify user about Go installation
+    echo -e "${YELLOW}[⋯]${NC} Note: To use the new Go version in your current shell, run: source /etc/profile.d/golang.sh"
+}
+
 # Clone drive functionality
 clone_drive() {
     # Check if running as root
@@ -719,6 +805,15 @@ activate_drone() {
         exit 1
     fi
 
+    # Check if WireGuard is installed
+    if ! command -v wg >/dev/null 2>&1; then
+        echo -e "${YELLOW}[⋯]${NC} WireGuard is not installed. Installing..."
+        install_wireguard
+    fi
+
+    # Make sure WireGuard directory exists
+    mkdir -p /etc/wireguard
+
     echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
     curl -o /etc/wireguard/wg0.conf "$vpn_url"
     if [ $? -ne 0 ]; then
@@ -733,10 +828,19 @@ activate_drone() {
         exit 1
     fi
 
-    systemctl restart wg-quick@wg0 || systemctl start wg-quick@wg0
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Failed to start wg-quick service"
-        exit 1
+    # Stop WireGuard if it's already running
+    systemctl stop wg-quick@wg0 >/dev/null 2>&1
+
+    # Try to start the WireGuard service
+    if ! systemctl start wg-quick@wg0; then
+        echo -e "${YELLOW}[⋯]${NC} Failed to start WireGuard service. Trying to set up userspace mode..."
+        install_wireguard
+        systemctl daemon-reload
+        
+        if ! systemctl start wg-quick@wg0; then
+            echo -e "${RED}[✖]${NC} Failed to start WireGuard service even with userspace implementation."
+            exit 1
+        fi
     fi
 
     echo -e "${GREEN}[✔]${NC} VPN connection established"
@@ -779,7 +883,9 @@ activate_drone() {
     echo -e "${GREEN}[✔]${NC} Drone activation is complete."
 }
 
-sudo cp skycore.sh /usr/local/bin/
+# Install skycore to the system
+SCRIPT_PATH=$(readlink -f "$0")
+sudo cp "$SCRIPT_PATH" /usr/local/bin/skycore.sh
 sudo chmod +x /usr/local/bin/skycore.sh
 sudo ln -sf /usr/local/bin/skycore.sh /usr/local/bin/skycore
 
@@ -809,6 +915,7 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore clone     - Clone a device to image files"
     echo "  skycore flash     - Flash image files to a device"
     echo "  skycore activate  - Activate a drone with a token"
+    echo "  skycore install-wireguard  - Install WireGuard on the system"
     echo "  skycore help      - Show this help message"
     
     echo ""
@@ -816,6 +923,9 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore clone --help"
     echo "  skycore flash --help"
     echo "  skycore activate <token>"
+
+elif [[ "$1" == "install-wireguard" ]]; then
+    install_wireguard
 else
     echo "Usage: skycore [command]"
     echo "Use 'skycore help' for a list of available commands"
