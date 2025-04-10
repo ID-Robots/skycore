@@ -1,10 +1,10 @@
 Getting Started
-==============
+===============
 
 Welcome to SkyCore! This guide will help you install and get started with SkyCore.
 
 SkyHub Registration
-------------------
+-------------------
 
 Before you begin, you'll need to create a SkyHub account:
 
@@ -13,7 +13,7 @@ Before you begin, you'll need to create a SkyHub account:
 3. Log in to access the SkyHub dashboard
 
 Installation
------------
+------------
 
 SSH into your Jetson device and install SkyCore CLI:
 
@@ -22,7 +22,7 @@ SSH into your Jetson device and install SkyCore CLI:
    curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash skycore.sh
 
 Drive Flashing
--------------
+--------------
 
 To download and flash a Jetson Orin image to a drive:
 
@@ -47,13 +47,13 @@ You can customize the source and other options:
 For more options and details, see the :doc:`flash` documentation.
 
 Vehicle Registration
-------------------
+--------------------
 
 Add a new vehicle to SkyHub by visiting:
 https://skyhub.ai/home?dialog=app-create-drone-dialog
 
 Drone Activation
---------------
+----------------
 
 Activate your drone with the following command:
 
@@ -70,7 +70,7 @@ Activate your drone with the following command:
 For more details on activation options and troubleshooting, see the :doc:`activate` documentation.
 
 Important Notes
--------------
+---------------
 
 1. Ensure you have a stable internet connection before running the commands.
 2. Run all commands with appropriate privileges (use ``sudo`` where required).

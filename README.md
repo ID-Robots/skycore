@@ -101,7 +101,51 @@ sudo skycore flash --target /dev/sdX --bucket s3://custom-bucket --image custom-
 
 For more details, see the [Flashing Documentation](https://id-robots.github.io/skycore/flash.html).
 
+## Service Management
+
+SkyCore manages several Docker services that are essential for drone operation:
+
+### Available Services
+
+- `drone-mavros`: ROS2-based MAVLink bridge for drone communication
+- `camera-proxy`: Video streaming service for drone cameras
+- `mavproxy`: MAVLink proxy for routing drone messages
+- `ws_proxy`: WebSocket proxy for real-time communication
+
+### Managing Services
+
+Start specific services (after activation):
+```bash
+sudo skycore activate --token <drone_token> --services drone-mavros,mavproxy
+```
+
+Start all configured services:
+```bash
+sudo skycore up
+```
+
+Stop all running services:
+```bash
+sudo skycore down
+```
+
+Service configuration is stored in `/home/skycore/skycore.conf` after activation. You can modify this file to change which services are managed by the `up` command.
+
 ## Sphinx Documentation Update
+
+### Installing Documentation Dependencies
+
+The documentation system requires several Python packages. You can install them using:
+
+```bash
+pip3 install -r requirements-docs.txt
+```
+
+Required packages are listed in `requirements-docs.txt` and include:
+- Sphinx and extensions
+- Read the Docs theme
+- MyST Parser for Markdown support
+- Additional Sphinx plugins for enhanced functionality
 
 ### Building Documentation
 

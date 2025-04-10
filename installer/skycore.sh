@@ -774,14 +774,45 @@ activate_drone() {
         exit 1
     fi
 
+    # Default values
+    TOKEN=""
+    SERVICES=""
+    
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --token|-t)
+                TOKEN="$2"
+                shift 2
+                ;;
+            --services|-s)
+                SERVICES="$2"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: skycore activate [options] <Drone Token>"
+                echo "  --token, -t: Drone activation token"
+                echo "  --services, -s: Comma-separated list of services to start (default: all)"
+                echo "                  Available services: drone-mavros, camera-proxy, mavproxy, ws_proxy"
+                echo "Example: skycore activate --token ABC123 --services drone-mavros,mavproxy"
+                exit 0
+                ;;
+            *)
+                # If no explicit token parameter, use positional argument
+                if [ -z "$TOKEN" ]; then
+                    TOKEN="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
     # Check if token is provided
-    if [ $# -lt 1 ]; then
+    if [ -z "$TOKEN" ]; then
         echo -e "${RED}[✖]${NC} No drone token provided. Use token parameter to specify the token."
-        echo "Usage: skycore activate <Drone Token>"
+        echo "Usage: skycore activate <Drone Token> or skycore activate --token <Drone Token>"
         exit 1
     fi
-
-    TOKEN=$1
 
     # read a STAGE environment variable
     STAGE=${STAGE:-prod}
@@ -939,11 +970,64 @@ activate_drone() {
 
     echo -e "${YELLOW}[⋯]${NC} Starting Docker containers..."
     docker compose pull
-    docker compose up -d
+    
+    # If specific services are specified, start only those
+    if [ -n "$SERVICES" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Starting selected services: $SERVICES"
+        # Convert comma-separated list to space-separated for docker compose
+        SERVICES_LIST=${SERVICES//,/ }
+        docker compose up -d $SERVICES_LIST
+    else
+        echo -e "${YELLOW}[⋯]${NC} Starting all services"
+        docker compose up -d
+    fi
 
     if [ $? -ne 0 ]; then
         echo -e "${RED}[✖]${NC} Failed to start Docker containers"
         exit 1
+    fi
+
+    # Create configuration file
+    echo -e "${YELLOW}[⋯]${NC} Creating configuration file..."
+    CONFIG_FILE="/home/skycore/skycore.conf"
+    
+    # Prepare services string for config
+    if [ -n "$SERVICES" ]; then
+        SERVICES_CONFIG="$SERVICES"
+    else
+        # If all services were started, list them all
+        SERVICES_CONFIG="drone-mavros,camera-proxy,mavproxy,ws_proxy"
+    fi
+    
+    # Write to config file
+    cat > "$CONFIG_FILE" << EOF
+activated: true
+token: $TOKEN
+services: $SERVICES_CONFIG
+activation_date: $(date +"%Y-%m-%d %H:%M:%S")
+EOF
+    
+    # Set permissions
+    chown skycore:skycore "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"  # Only owner can read/write
+    
+    echo -e "${GREEN}[✔]${NC} Configuration saved to $CONFIG_FILE"
+
+    # Grant Docker permissions to user
+    echo -e "${YELLOW}[⋯]${NC} Granting Docker permissions to the current user..."
+    # Get the current user (if running with sudo)
+    CURRENT_USER=${SUDO_USER:-$(whoami)}
+    
+    # Skip if already root
+    if [ "$CURRENT_USER" != "root" ]; then
+        if getent group docker | grep -q "\b${CURRENT_USER}\b"; then
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER already has Docker permissions"
+        else
+            usermod -aG docker $CURRENT_USER
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER added to the docker group"
+            echo -e "${YELLOW}[⋯]${NC} You may need to log out and log back in for the changes to take effect"
+            echo -e "${YELLOW}[⋯]${NC} Or run 'newgrp docker' in your terminal to apply permissions immediately"
+        fi
     fi
 
     echo -e "${GREEN}[✔]${NC} Drone activation is complete."
@@ -951,10 +1035,65 @@ activate_drone() {
 
 # Install skycore to the system
 SCRIPT_PATH=$(readlink -f "$0")
-sudo cp "$SCRIPT_PATH" /usr/local/bin/skycore.sh
-sudo chmod +x /usr/local/bin/skycore.sh
-sudo ln -sf /usr/local/bin/skycore.sh /usr/local/bin/skycore
+if [ ! -f "/usr/local/bin/skycore.sh" ]; then
+    sudo cp "$SCRIPT_PATH" /usr/local/bin/skycore.sh
+    sudo chmod +x /usr/local/bin/skycore.sh
+    sudo ln -sf /usr/local/bin/skycore.sh /usr/local/bin/skycore
+fi
 
+# Function to start services listed in skycore.conf
+skycore_up() {
+    # Check if config file exists
+    CONFIG_FILE="/home/skycore/skycore.conf"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo -e "${RED}[✖]${NC} Configuration file not found: $CONFIG_FILE"
+        echo -e "${YELLOW}[⋯]${NC} Run 'skycore activate' first to set up the drone"
+        exit 1
+    fi
+    
+    # Read services from config file
+    SERVICES=$(grep "services:" "$CONFIG_FILE" | cut -d':' -f2 | tr -d ' ')
+    
+    # Check if services were found in config
+    if [ -z "$SERVICES" ]; then
+        echo -e "${RED}[✖]${NC} No services defined in $CONFIG_FILE"
+        exit 1
+    fi
+    
+    # Convert comma-separated list to space-separated for docker compose
+    SERVICES_LIST=${SERVICES//,/ }
+    
+    echo -e "${YELLOW}[⋯]${NC} Starting services: $SERVICES"
+    docker compose up -d $SERVICES_LIST
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to start services"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Services started successfully"
+}
+
+# Function to stop all Docker services
+skycore_down() {
+    echo -e "${YELLOW}[⋯]${NC} Stopping all Docker services..."
+    
+    # Check if docker-compose.yml exists
+    if [ ! -f "docker-compose.yml" ]; then
+        echo -e "${RED}[✖]${NC} docker-compose.yml not found"
+        echo -e "${YELLOW}[⋯]${NC} Run 'skycore activate' first to set up the drone"
+        exit 1
+    fi
+    
+    docker compose down
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to stop services"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} All services stopped successfully"
+}
 
 if [[ "$1" == "cli" ]]; then
     echo "Starting SkyCore CLI..."
@@ -975,12 +1114,26 @@ elif [[ "$1" == "activate" ]]; then
     shift
     activate_drone "$@"
 
+elif [[ "$1" == "up" ]]; then
+    # Start services from config
+    skycore_up
+
+elif [[ "$1" == "down" ]]; then
+    # Stop all services
+    skycore_down
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
     echo "  skycore clone     - Clone a device to image files"
     echo "  skycore flash     - Flash image files to a device"
     echo "  skycore activate  - Activate a drone with a token"
+    echo "    Options:"
+    echo "      --token, -t <token>     - Specify the activation token"
+    echo "      --services, -s <list>   - Comma-separated list of services to start"
+    echo "                              (drone-mavros,camera-proxy,mavproxy,ws_proxy)"
+    echo "  skycore up        - Start services listed in skycore.conf"
+    echo "  skycore down      - Stop all Docker services"
     echo "  skycore install-wireguard  - Install WireGuard on the system"
     echo "  skycore help      - Show this help message"
     
@@ -988,7 +1141,7 @@ elif [[ "$1" == "help" ]]; then
     echo "For more information on a specific command, use --help:"
     echo "  skycore clone --help"
     echo "  skycore flash --help"
-    echo "  skycore activate <token>"
+    echo "  skycore activate --help"
 
 elif [[ "$1" == "install-wireguard" ]]; then
     install_wireguard
