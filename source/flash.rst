@@ -3,7 +3,7 @@ Flashing Drives
 =================
 
 Overview
----------
+--------
 
 The SkyCore system includes a powerful drive flashing feature that allows you to restore Jetson Orin images to target devices. The flash command can download images from S3 buckets or use locally stored images.
 

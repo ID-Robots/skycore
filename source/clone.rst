@@ -1,9 +1,9 @@
-=================
+==============
 Cloning Drives
-=================
+==============
 
 Overview
----------
+--------
 
 The SkyCore system includes a powerful drive cloning feature that allows you to create backups of your Jetson Orin partitions. This tool uses partclone to efficiently clone partitions and can compress images to save space.
 
@@ -81,7 +81,7 @@ Below are some examples of how to use the clone command:
       sudo skycore clone --source /dev/sda --compress --archive my_backup
 
 Cloning Process
-----------------
+---------------
 
 When you run the clone command, the following steps are performed:
 
@@ -94,7 +94,7 @@ When you run the clone command, the following steps are performed:
 7. It creates an archive if the --archive option is used
 
 Restoring Images
----------------
+----------------
 
 To restore cloned images to a target drive, use the ``skycore flash`` command:
 

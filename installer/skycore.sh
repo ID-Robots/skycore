@@ -541,170 +541,46 @@ flash_device_with_images() {
         exit 1
     fi
 
-    echo "================= FLASH DRIVE SUMMARY ================="
-    echo -e "${YELLOW}[⋯]${NC} Target device: $TARGET_DEVICE"
-    lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT "$TARGET_DEVICE"
-    echo ""
+    # Default values
+    TOKEN=""
+    SERVICES=""
     
-    if [ "$FROM_S3" = true ]; then
-        echo -e "${YELLOW}[⋯]${NC} Source image: $IMAGE_NAME from $S3_BUCKET"
-    elif [ -n "$ARCHIVE_PATH" ]; then
-        echo -e "${YELLOW}[⋯]${NC} Source archive: $ARCHIVE_PATH"
-    else
-        echo -e "${YELLOW}[⋯]${NC} Source directory: $INPUT_DIR"
-    fi
-    
-    if [ -f "$TMP_EXTRACT_DIR/manifest.txt" ]; then
-        echo "--- Archive Manifest ---"
-        head -n 10 "$TMP_EXTRACT_DIR/manifest.txt"
-        echo "------------------------"
-    fi
-    
-    echo "===================================================="
-    echo ""
-    echo -e "${RED}WARNING: All data on $TARGET_DEVICE will be permanently lost!${NC}"
-    echo -n "Do you want to continue? (y/N): "
-    read CONFIRM
-
-    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-        echo -e "${YELLOW}[⋯]${NC} Operation cancelled."
-        cleanup
-        exit 0
-    fi
-
-    echo -e "${YELLOW}[⋯]${NC} Preparing target drive $TARGET_DEVICE"
-    echo -e "${YELLOW}[⋯]${NC} Restoring partition table to $TARGET_DEVICE"
-    sfdisk "$TARGET_DEVICE" < "$PARTITION_TABLE"
-    echo -e "${GREEN}[✔]${NC} Partition table restored."
-
-    partprobe "$TARGET_DEVICE"
-    sleep 2
-
-    echo -e "${YELLOW}[⋯]${NC} Looking for partition images in the extracted archive"
-    IMAGE_FILES=$(find "$TMP_EXTRACT_DIR" -name "jetson_nvme_p*.img*" | sort)
-
-    if [ -z "$IMAGE_FILES" ]; then
-        echo -e "${RED}[✖]${NC} Error: No partition image files found in the source."
-        cleanup
-        exit 1
-    fi
-
-    echo -e "${GREEN}[✔]${NC} Found $(echo "$IMAGE_FILES" | wc -l) partition image(s)"
-    echo -e "${YELLOW}[⋯]${NC} Starting partition restoration..."
-
-    for img_file in $IMAGE_FILES; do
-        base_name=$(basename "$img_file")
-        if [[ "$base_name" =~ p([0-9]+)\.img ]]; then
-            part_num="${BASH_REMATCH[1]}"
-        elif [[ "$base_name" =~ p([0-9]+)\.img\.(gz|lz4) ]]; then
-            part_num="${BASH_REMATCH[1]}"
-        else
-            echo -e "${YELLOW}[⋯]${NC} Warning: Could not extract partition number from $base_name, skipping"
-            continue
-        fi
-        
-        target_base=$(basename "$TARGET_DEVICE")
-        if [[ "$target_base" =~ [0-9]$ ]]; then
-            target_part="${TARGET_DEVICE}p${part_num}"
-        else
-            target_part="${TARGET_DEVICE}${part_num}"
-        fi
-        
-        if [ ! -b "$target_part" ]; then
-            echo -e "${YELLOW}[⋯]${NC} Warning: Target partition $target_part does not exist. Skipping."
-            continue
-        fi
-        
-        fs_type=""
-        if [ -f "$TMP_EXTRACT_DIR/jetson_nvme_blkinfo.txt" ]; then
-            fs_info=$(grep -E "/dev/[a-zA-Z0-9]+${part_num}:" "$TMP_EXTRACT_DIR/jetson_nvme_blkinfo.txt" | grep -o "TYPE=\"[^\"]*\"" | cut -d'"' -f2)
-            if [ -n "$fs_info" ]; then
-                fs_type="$fs_info"
-            fi
-        fi
-        
-        if [ -z "$fs_type" ]; then
-            if [[ "$base_name" == *"ext4"* ]]; then
-                fs_type="ext4"
-            elif [[ "$base_name" == *"vfat"* || "$base_name" == *"fat"* ]]; then
-                fs_type="vfat"
-            elif [[ "$base_name" == *"ntfs"* ]]; then
-                fs_type="ntfs"
-            elif [[ "$base_name" == *"xfs"* ]]; then
-                fs_type="xfs"
-            else
-                fs_type="dd"
-            fi
-        fi
-        
-        case $fs_type in
-            ext4|ext3|ext2)
-                PARTCLONE_CMD="partclone.ext4"
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --token|-t)
+                TOKEN="$2"
+                shift 2
                 ;;
-            vfat|fat32|fat16|fat12)
-                PARTCLONE_CMD="partclone.vfat"
+            --services|-s)
+                SERVICES="$2"
+                shift 2
                 ;;
-            ntfs)
-                PARTCLONE_CMD="partclone.ntfs"
-                ;;
-            xfs)
-                PARTCLONE_CMD="partclone.xfs"
+            --help|-h)
+                echo "Usage: skycore activate [options] <Drone Token>"
+                echo "  --token, -t: Drone activation token"
+                echo "  --services, -s: Comma-separated list of services to start (default: all)"
+                echo "                  Available services: drone-mavros, camera-proxy, mavproxy, ws_proxy"
+                echo "Example: skycore activate --token ABC123 --services drone-mavros,mavproxy"
+                exit 0
                 ;;
             *)
-                PARTCLONE_CMD="partclone.dd"
+                # If no flag is provided, assume it's the token (for backward compatibility)
+                if [ -z "$TOKEN" ]; then
+                    TOKEN="$1"
+                fi
+                shift
                 ;;
         esac
-        
-        echo -e "${YELLOW}[⋯]${NC} Restoring partition to $target_part (filesystem: $fs_type)"
-        
-        if [[ "$img_file" == *.lz4 ]]; then
-            echo -e "${YELLOW}[⋯]${NC} Decompressing and restoring from $img_file"
-            if [[ "$PARTCLONE_CMD" == "partclone.dd" ]]; then
-                lz4 -d -c "$img_file" | $PARTCLONE_CMD -s - -o "$target_part"
-            else
-                lz4 -d -c "$img_file" | $PARTCLONE_CMD -r -s - -o "$target_part"
-            fi
-        elif [[ "$img_file" == *.gz ]]; then
-            echo -e "${YELLOW}[⋯]${NC} Decompressing and restoring from $img_file"
-            if [[ "$PARTCLONE_CMD" == "partclone.dd" ]]; then
-                gzip -d -c "$img_file" | $PARTCLONE_CMD -s - -o "$target_part"
-            else
-                gzip -d -c "$img_file" | $PARTCLONE_CMD -r -s - -o "$target_part"
-            fi
-        else
-            echo -e "${YELLOW}[⋯]${NC} Restoring from $img_file"
-            if [[ "$PARTCLONE_CMD" == "partclone.dd" ]]; then
-                $PARTCLONE_CMD -s "$img_file" -o "$target_part"
-            else
-                $PARTCLONE_CMD -r -s "$img_file" -o "$target_part"
-            fi
-        fi
-        
-        echo -e "${GREEN}[✔]${NC} Partition image $img_file restored to $target_part"
     done
 
-    sync
-    echo -e "${GREEN}[✔]${NC} Flashing completed successfully!"
-}
-
-cleanup() {
-    echo -e "${YELLOW}[⋯]${NC} Cleaning up temporary files..."
-    if [ -z "$INPUT_DIR" ]; then
-        rm -rf "$TMP_EXTRACT_DIR"
-    fi
-    echo -e "${GREEN}[✔]${NC} Cleanup completed."
-}
-
-activate_drone() {
-    check_root
-
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}[✖]${NC} No drone token provided. Use token parameter to specify the token."
-        echo "Usage: skycore activate <Drone Token>"
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}[✖]${NC} No drone token provided. Use --token parameter to specify the token."
+        echo "Usage: skycore activate --token <Drone Token> [--services <service1,service2,...]"
         exit 1
     fi
 
-    TOKEN=$1
+    # read a STAGE environment variable
     STAGE=${STAGE:-prod}
     
     echo -e "${YELLOW}[⋯]${NC} Activating drone with token on $STAGE environment..."
@@ -729,12 +605,33 @@ activate_drone() {
         install_wireguard
     fi
 
-    mkdir -p /etc/wireguard
+    # Wait a bit before requesting the configuration file
+    echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
+    sleep 3
 
+    # Now download VPN configuration after ensuring WireGuard is working
     echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
     curl -o /etc/wireguard/wg0.conf "$vpn_url"
     if [ $? -ne 0 ]; then
         echo -e "${RED}[✖]${NC} Failed to download Drone VPN file"
+        exit 1
+    fi
+
+    # Validate the configuration file - check if it's XML instead of WireGuard config
+    if grep -q "<?xml" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (XML detected)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
+        echo -e "${YELLOW}[⋯]${NC} The download URL may be expired or invalid."
+        echo -e "${YELLOW}[⋯]${NC} Please try activating again with a new token."
+        exit 1
+    fi
+
+    # Validate the configuration has required WireGuard sections
+    if ! grep -q "\[Interface\]" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (missing [Interface] section)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
         exit 1
     fi
 
@@ -746,16 +643,23 @@ activate_drone() {
     fi
 
     systemctl stop wg-quick@wg0 >/dev/null 2>&1
+    sleep 2  # Short pause to ensure service has completely stopped
 
     if ! systemctl start wg-quick@wg0; then
-        echo -e "${YELLOW}[⋯]${NC} Failed to start WireGuard service. Trying to set up userspace mode..."
-        install_wireguard
-        systemctl daemon-reload
-        
-        if ! systemctl start wg-quick@wg0; then
-            echo -e "${RED}[✖]${NC} Failed to start WireGuard service even with userspace implementation."
-            exit 1
-        fi
+        echo -e "${RED}[✖]${NC} Failed to start WireGuard service. Please check the configuration."
+        systemctl status wg-quick@wg0
+        exit 1
+    fi
+
+    # Wait for the VPN connection to establish
+    echo -e "${YELLOW}[⋯]${NC} Waiting for VPN connection to establish..."
+    sleep 5
+
+    # Verify VPN connection
+    if ! wg show wg0 >/dev/null 2>&1; then
+        echo -e "${RED}[✖]${NC} VPN connection failed to establish."
+        systemctl status wg-quick@wg0
+        exit 1
     fi
 
     echo -e "${GREEN}[✔]${NC} VPN connection established"
@@ -787,30 +691,388 @@ activate_drone() {
 
     echo -e "${YELLOW}[⋯]${NC} Starting Docker containers..."
     docker compose pull
-    docker compose up -d
+    
+    # If specific services are specified, start only those
+    if [ -n "$SERVICES" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Starting selected services: $SERVICES"
+        # Convert comma-separated list to space-separated for docker compose
+        SERVICES_LIST=${SERVICES//,/ }
+        docker compose up -d $SERVICES_LIST
+    else
+        echo -e "${YELLOW}[⋯]${NC} Starting all services"
+        docker compose up -d
+    fi
 
     if [ $? -ne 0 ]; then
         echo -e "${RED}[✖]${NC} Failed to start Docker containers"
         exit 1
     fi
 
+    # Create configuration file
+    echo -e "${YELLOW}[⋯]${NC} Creating configuration file..."
+    CONFIG_FILE="/home/skycore/skycore.conf"
+    
+    # Prepare services string for config
+    if [ -n "$SERVICES" ]; then
+        SERVICES_CONFIG="$SERVICES"
+    else
+        # If all services were started, list them all
+        SERVICES_CONFIG="drone-mavros,camera-proxy,mavproxy,ws_proxy"
+    fi
+    
+    # Write to config file
+    cat > "$CONFIG_FILE" << EOF
+activated: true
+token: $TOKEN
+services: $SERVICES_CONFIG
+activation_date: $(date +"%Y-%m-%d %H:%M:%S")
+EOF
+    
+    # Set permissions
+    chown skycore:skycore "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"  # Only owner can read/write
+    
+    echo -e "${GREEN}[✔]${NC} Configuration saved to $CONFIG_FILE"
+
+    # Grant Docker permissions to user
+    echo -e "${YELLOW}[⋯]${NC} Granting Docker permissions to the current user..."
+    # Get the current user (if running with sudo)
+    CURRENT_USER=${SUDO_USER:-$(whoami)}
+    
+    # Skip if already root
+    if [ "$CURRENT_USER" != "root" ]; then
+        if getent group docker | grep -q "\b${CURRENT_USER}\b"; then
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER already has Docker permissions"
+        else
+            usermod -aG docker $CURRENT_USER
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER added to the docker group"
+            echo -e "${YELLOW}[⋯]${NC} You may need to log out and log back in for the changes to take effect"
+            echo -e "${YELLOW}[⋯]${NC} Or run 'newgrp docker' in your terminal to apply permissions immediately"
+        fi
+    fi
+
     echo -e "${GREEN}[✔]${NC} Drone activation is complete."
 }
 
-install_skycore() {
-    SCRIPT_PATH=$(readlink -f "$0")
-    sudo cp "$SCRIPT_PATH" /usr/local/bin/skycore.sh
-    sudo chmod +x /usr/local/bin/skycore.sh
-    sudo ln -sf /usr/local/bin/skycore.sh /usr/local/bin/skycore
-    echo -e "${GREEN}[✔]${NC} SkyCore installed successfully"
+cleanup() {
+    echo -e "${YELLOW}[⋯]${NC} Cleaning up temporary files..."
+    if [ -z "$INPUT_DIR" ]; then
+        rm -rf "$TMP_EXTRACT_DIR"
+    fi
+    echo -e "${GREEN}[✔]${NC} Cleanup completed."
 }
 
-show_help() {
+activate_drone() {
+    check_root
+
+    TOKEN=""
+    # Set default services to drone-mavros and mavproxy
+    SERVICES="drone-mavros,mavproxy"
+
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --token|-t)
+                TOKEN="$2"
+                shift 2
+                ;;
+            --services|-s)
+                SERVICES="$2"
+                shift 2
+                ;;
+            *)
+                # If no flag is provided, assume it's the token (for backward compatibility)
+                if [ -z "$TOKEN" ]; then
+                    TOKEN="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}[✖]${NC} No drone token provided. Use --token parameter to specify the token."
+        echo "Usage: skycore activate --token <Drone Token> [--services <service1,service2,...]"
+        exit 1
+    fi
+
+    STAGE=${STAGE:-prod}
+    
+    echo -e "${YELLOW}[⋯]${NC} Activating drone with token on $STAGE environment..."
+    
+    echo -e "${YELLOW}[⋯]${NC} Contacting activation server..."
+    response=$(curl --connect-timeout 15 --max-time 15 https://$STAGE.skyhub.ai:5000/api/v1/drone/activate -H "token: $TOKEN")
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Curl request failed"
+        exit 1
+    fi
+
+    vpn_url=$(echo "$response" | jq -r '.vpn')
+
+    if [ -z "$vpn_url" ]; then
+        echo -e "${RED}[✖]${NC} No download link found in the response"
+        exit 1
+    fi
+
+    if ! command -v wg >/dev/null 2>&1; then
+        echo -e "${YELLOW}[⋯]${NC} WireGuard is not installed. Installing..."
+        install_wireguard
+    fi
+
+    # Wait a bit before requesting the configuration file
+    echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
+    sleep 3
+
+    # Now download VPN configuration after ensuring WireGuard is working
+    echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
+    curl -o /etc/wireguard/wg0.conf "$vpn_url"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to download Drone VPN file"
+        exit 1
+    fi
+
+    # Validate the configuration file - check if it's XML instead of WireGuard config
+    if grep -q "<?xml" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (XML detected)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
+        echo -e "${YELLOW}[⋯]${NC} The download URL may be expired or invalid."
+        echo -e "${YELLOW}[⋯]${NC} Please try activating again with a new token."
+        exit 1
+    fi
+
+    # Validate the configuration has required WireGuard sections
+    if ! grep -q "\[Interface\]" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (missing [Interface] section)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
+        exit 1
+    fi
+
+    echo -e "${YELLOW}[⋯]${NC} Enabling and starting VPN service..."
+    systemctl enable wg-quick@wg0
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to enable wg-quick service"
+        exit 1
+    fi
+
+    systemctl stop wg-quick@wg0 >/dev/null 2>&1
+    sleep 2  # Short pause to ensure service has completely stopped
+
+    if ! systemctl start wg-quick@wg0; then
+        echo -e "${RED}[✖]${NC} Failed to start WireGuard service. Please check the configuration."
+        systemctl status wg-quick@wg0
+        exit 1
+    fi
+
+    # Wait for the VPN connection to establish
+    echo -e "${YELLOW}[⋯]${NC} Waiting for VPN connection to establish..."
+    sleep 5
+
+    # Verify VPN connection
+    if ! wg show wg0 >/dev/null 2>&1; then
+        echo -e "${RED}[✖]${NC} VPN connection failed to establish."
+        systemctl status wg-quick@wg0
+        exit 1
+    fi
+
+    echo -e "${GREEN}[✔]${NC} VPN connection established"
+    
+    username=$(echo "$response" | jq -r '.username')
+    password=$(echo "$response" | jq -r '.password')
+    repository=$(echo "$response" | jq -r '.repository')
+
+    echo -e "${YELLOW}[⋯]${NC} Logging in to Docker registry..."
+    docker login -u $username -p $password $repository
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to login to Docker registry"
+        exit 1
+    fi
+
+    systemctl enable docker
+
+    echo -e "${YELLOW}[⋯]${NC} Downloading Docker Compose configuration..."
+    compose=$(echo "$response" | jq -r '.compose')
+    curl --connect-timeout 15 --max-time 15 -o docker-compose.yml "$compose"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to download Docker Compose file"
+        exit 1
+    fi
+
+    chown skycore docker-compose.yml
+    chown -R skycore /home/skycore
+    chmod -R 755 /home/skycore
+
+    echo -e "${YELLOW}[⋯]${NC} Starting Docker containers..."
+    docker compose pull
+    
+    # If specific services are specified, start only those
+    if [ -n "$SERVICES" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Starting selected services: $SERVICES"
+        # Convert comma-separated list to space-separated for docker compose
+        SERVICES_LIST=${SERVICES//,/ }
+        docker compose up -d $SERVICES_LIST
+    else
+        echo -e "${YELLOW}[⋯]${NC} Starting all services"
+        docker compose up -d
+    fi
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to start Docker containers"
+        exit 1
+    fi
+
+    # Create configuration file
+    echo -e "${YELLOW}[⋯]${NC} Creating configuration file..."
+    CONFIG_FILE="/home/skycore/skycore.conf"
+    
+    # Prepare services string for config
+    if [ -n "$SERVICES" ]; then
+        SERVICES_CONFIG="$SERVICES"
+    else
+        # If all services were started, list them all
+        SERVICES_CONFIG="drone-mavros,camera-proxy,mavproxy,ws_proxy"
+    fi
+    
+    # Write to config file
+    cat > "$CONFIG_FILE" << EOF
+activated: true
+token: $TOKEN
+services: $SERVICES_CONFIG
+activation_date: $(date +"%Y-%m-%d %H:%M:%S")
+EOF
+    
+    # Set permissions
+    chown skycore:skycore "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"  # Only owner can read/write
+    
+    echo -e "${GREEN}[✔]${NC} Configuration saved to $CONFIG_FILE"
+
+    # Grant Docker permissions to user
+    echo -e "${YELLOW}[⋯]${NC} Granting Docker permissions to the current user..."
+    # Get the current user (if running with sudo)
+    CURRENT_USER=${SUDO_USER:-$(whoami)}
+    
+    # Skip if already root
+    if [ "$CURRENT_USER" != "root" ]; then
+        if getent group docker | grep -q "\b${CURRENT_USER}\b"; then
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER already has Docker permissions"
+        else
+            usermod -aG docker $CURRENT_USER
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER added to the docker group"
+            echo -e "${YELLOW}[⋯]${NC} You may need to log out and log back in for the changes to take effect"
+            echo -e "${YELLOW}[⋯]${NC} Or run 'newgrp docker' in your terminal to apply permissions immediately"
+        fi
+    fi
+
+    echo -e "${GREEN}[✔]${NC} Drone activation is complete."
+}
+
+# Install skycore to the system
+SCRIPT_PATH=$(readlink -f "$0")
+INSTALL_PATH="/usr/local/bin/skycore.sh"
+
+if [ "$SCRIPT_PATH" != "$INSTALL_PATH" ] && [ ! -f "$INSTALL_PATH" ]; then
+    sudo cp "$SCRIPT_PATH" "$INSTALL_PATH"
+    sudo chmod +x "$INSTALL_PATH"
+    sudo ln -sf "$INSTALL_PATH" "/usr/local/bin/skycore"
+fi
+
+# Function to start services listed in skycore.conf
+skycore_up() {
+    # Check if config file exists
+    CONFIG_FILE="/home/skycore/skycore.conf"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo -e "${RED}[✖]${NC} Configuration file not found: $CONFIG_FILE"
+        echo -e "${YELLOW}[⋯]${NC} Run 'skycore activate' first to set up the drone"
+        exit 1
+    fi
+    
+    # Read services from config file
+    SERVICES=$(grep "services:" "$CONFIG_FILE" | cut -d':' -f2 | tr -d ' ')
+    
+    # Check if services were found in config
+    if [ -z "$SERVICES" ]; then
+        echo -e "${RED}[✖]${NC} No services defined in $CONFIG_FILE"
+        exit 1
+    fi
+    
+    # Convert comma-separated list to space-separated for docker compose
+    SERVICES_LIST=${SERVICES//,/ }
+    
+    echo -e "${YELLOW}[⋯]${NC} Starting services: $SERVICES"
+    docker compose up -d $SERVICES_LIST
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to start services"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Services started successfully"
+}
+
+# Function to stop all Docker services
+skycore_down() {
+    echo -e "${YELLOW}[⋯]${NC} Stopping all Docker services..."
+    
+    # Check if docker-compose.yml exists
+    if [ ! -f "docker-compose.yml" ]; then
+        echo -e "${RED}[✖]${NC} docker-compose.yml not found"
+        echo -e "${YELLOW}[⋯]${NC} Run 'skycore activate' first to set up the drone"
+        exit 1
+    fi
+    
+    docker compose down
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to stop services"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} All services stopped successfully"
+}
+
+if [[ "$1" == "cli" ]]; then
+    echo "Starting SkyCore CLI..."
+    python3 "skycore_cli.py"
+
+elif [[ "$1" == "clone" ]]; then
+    # Shift to remove the "clone" argument
+    shift
+    clone_drive "$@"
+
+elif [[ "$1" == "flash" ]]; then
+    # Shift to remove the "flash" argument
+    shift
+    flash_drive "$@"
+
+elif [[ "$1" == "activate" ]]; then
+    # Shift to remove the "activate" argument
+    shift
+    activate_drone "$@"
+
+elif [[ "$1" == "up" ]]; then
+    # Start services from config
+    skycore_up
+
+elif [[ "$1" == "down" ]]; then
+    # Stop all services
+    skycore_down
+
+elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
     echo "  skycore clone     - Clone a device to image files"
     echo "  skycore flash     - Flash image files to a device"
     echo "  skycore activate  - Activate a drone with a token"
+    echo "    Options:"
+    echo "      --token, -t <token>     - Specify the activation token"
+    echo "      --services, -s <list>   - Comma-separated list of services to start"
+    echo "                              (default: drone-mavros,mavproxy)"
+    echo "                              (available: drone-mavros,camera-proxy,mavproxy,ws_proxy)"
+    echo "  skycore up        - Start services listed in skycore.conf"
+    echo "  skycore down      - Stop all Docker services"
     echo "  skycore install-wireguard  - Install WireGuard on the system"
     echo "  skycore help      - Show this help message"
     
@@ -818,38 +1080,5 @@ show_help() {
     echo "For more information on a specific command, use --help:"
     echo "  skycore clone --help"
     echo "  skycore flash --help"
-    echo "  skycore activate <token>"
-}
-
-main() {
-    install_skycore
-
-    if [[ "$1" == "cli" ]]; then
-        echo "Starting SkyCore CLI..."
-        python3 "skycore_cli.py"
-
-    elif [[ "$1" == "clone" ]]; then
-        shift
-        clone_drive "$@"
-
-    elif [[ "$1" == "flash" ]]; then
-        shift
-        flash_drive "$@"
-
-    elif [[ "$1" == "activate" ]]; then
-        shift
-        activate_drone "$@"
-
-    elif [[ "$1" == "help" ]]; then
-        show_help
-
-    elif [[ "$1" == "install-wireguard" ]]; then
-        install_wireguard
-    else
-        echo "Usage: skycore [command]"
-        echo "Use 'skycore help' for a list of available commands"
-        exit 1
-    fi
-}
-
-main "$@"
+    echo "  skycore activate --help"
+fi

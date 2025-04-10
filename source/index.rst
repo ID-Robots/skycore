@@ -20,4 +20,5 @@ This documentation will guide you through the installation, configuration, and u
    clone
    flash
    activate
+   service_management
 

@@ -1,10 +1,10 @@
 Setup Gamepad Controller
-=======================
+========================
 
 SkyHub Supports controlling the vehicles with Gamepad. The system was tested with Play Station 4 and Play Station 5 controllers, but other controllers supporting the `Browser Gamepad API <https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API/Using_the_Gamepad_API>`_ will work.
 
 Connection Steps
----------------
+----------------
 
 1. Pair the controller to the phone, tablet, or PC
 2. Test if the gamepad is detected on `https://hardwaretester.com/gamepad <https://hardwaretester.com/gamepad>`_
@@ -19,7 +19,7 @@ Connection Steps
    PlayStation controller connected to SkyHub interface
 
 Button Mappings For Rover
-------------------------
+-------------------------
 
 * **Triangle (△)** - Guided Mode
 * **Circle (○)** - Auto Mode
@@ -36,7 +36,7 @@ Button Mappings For Rover
 * **Left Options** - Camera point forward
 
 Button Mappings For Drone
-------------------------
+-------------------------
 
 * **Triangle (△)** - Guided Mode
 * **Circle (○)** - Auto Mode
