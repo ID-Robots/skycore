@@ -447,7 +447,7 @@ list_block_devices() {
 install_dependencies() {
     echo -e "${YELLOW}[⋯]${NC} Checking for required dependencies..."
     apt-get update -y
-    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone
+    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone gdisk
 
     if [ "$FROM_S3" = true ]; then
         echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
@@ -541,217 +541,80 @@ flash_device_with_images() {
         exit 1
     fi
 
-    # Default values
-    TOKEN=""
-    SERVICES=""
+    echo -e "${YELLOW}[⋯]${NC} Creating new GPT partition table on $TARGET_DEVICE..."
+    # Wipe existing partition table and create a new GPT one
+    sgdisk --zap-all "$TARGET_DEVICE" || {
+        echo -e "${RED}[✖]${NC} Failed to zap existing partition table"
+        cleanup
+        exit 1
+    }
     
-    # Parse command line arguments
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --token|-t)
-                TOKEN="$2"
-                shift 2
-                ;;
-            --services|-s)
-                SERVICES="$2"
-                shift 2
-                ;;
-            --help|-h)
-                echo "Usage: skycore activate [options] <Drone Token>"
-                echo "  --token, -t: Drone activation token"
-                echo "  --services, -s: Comma-separated list of services to start (default: all)"
-                echo "                  Available services: drone-mavros, camera-proxy, mavproxy, ws_proxy"
-                echo "Example: skycore activate --token ABC123 --services drone-mavros,mavproxy"
-                exit 0
-                ;;
-            *)
-                # If no flag is provided, assume it's the token (for backward compatibility)
-                if [ -z "$TOKEN" ]; then
-                    TOKEN="$1"
-                fi
-                shift
-                ;;
-        esac
+    parted -s "$TARGET_DEVICE" mklabel gpt || {
+        echo -e "${RED}[✖]${NC} Failed to create new GPT partition table"
+        cleanup
+        exit 1
+    }
+    
+    echo -e "${GREEN}[✔]${NC} New GPT partition table created"
+    
+    echo -e "${YELLOW}[⋯]${NC} Restoring partition table to $TARGET_DEVICE..."
+    sfdisk "$TARGET_DEVICE" < "$PARTITION_TABLE"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to restore partition table"
+        cleanup
+        exit 1
+    fi
+    echo -e "${GREEN}[✔]${NC} Partition table restored successfully"
+
+    # Wait for partitions to be created and update kernel partition table
+    sleep 2
+    partprobe "$TARGET_DEVICE"
+    sync
+    sleep 1
+
+    # Get list of partition images
+    PARTITION_IMAGES=$(find "$TMP_EXTRACT_DIR" -name "jetson_nvme_p*.img*" | sort)
+
+    for img in $PARTITION_IMAGES; do
+        # Extract partition number from filename
+        PART_NUM=$(echo "$img" | grep -o 'p[0-9]*' | cut -d'p' -f2)
+        if [ -z "$PART_NUM" ]; then
+            echo -e "${YELLOW}[⋯]${NC} Skipping $img - could not determine partition number"
+            continue
+        fi
+
+        # Fix partition path construction based on device type
+        if [[ "$TARGET_DEVICE" == *"nvme"* ]] || [[ "$TARGET_DEVICE" == *"mmcblk"* ]]; then
+            # NVMe and MMC devices use 'p' prefix for partition numbers: nvme0n1p1, mmcblk0p1
+            TARGET_PARTITION="${TARGET_DEVICE}p${PART_NUM}"
+        else
+            # SATA/SCSI devices don't use 'p' prefix: sda1, sdb1
+            TARGET_PARTITION="${TARGET_DEVICE}${PART_NUM}"
+        fi
+        
+        echo -e "${YELLOW}[⋯]${NC} Flashing partition $TARGET_PARTITION from $img..."
+
+        # Check if image is compressed
+        if [[ "$img" == *.gz ]]; then
+            echo -e "${YELLOW}[⋯]${NC} Decompressing image..."
+            gunzip -c "$img" | partclone.restore --overwrite -s - -o "$TARGET_PARTITION"
+        elif [[ "$img" == *.lz4 ]]; then
+            echo -e "${YELLOW}[⋯]${NC} Decompressing image..."
+            lz4 -d "$img" - | partclone.restore --overwrite -s - -o "$TARGET_PARTITION"
+        else
+            partclone.restore --overwrite -s "$img" -o "$TARGET_PARTITION"
+        fi
+
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}[✖]${NC} Failed to flash partition $TARGET_PARTITION"
+            cleanup
+            exit 1
+        fi
+        echo -e "${GREEN}[✔]${NC} Partition $TARGET_PARTITION flashed successfully"
     done
 
-    if [ -z "$TOKEN" ]; then
-        echo -e "${RED}[✖]${NC} No drone token provided. Use --token parameter to specify the token."
-        echo "Usage: skycore activate --token <Drone Token> [--services <service1,service2,...]"
-        exit 1
-    fi
-
-    # read a STAGE environment variable
-    STAGE=${STAGE:-prod}
-    
-    echo -e "${YELLOW}[⋯]${NC} Activating drone with token on $STAGE environment..."
-    
-    echo -e "${YELLOW}[⋯]${NC} Contacting activation server..."
-    response=$(curl --connect-timeout 15 --max-time 15 https://$STAGE.skyhub.ai:5000/api/v1/drone/activate -H "token: $TOKEN")
-
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Curl request failed"
-        exit 1
-    fi
-
-    vpn_url=$(echo "$response" | jq -r '.vpn')
-
-    if [ -z "$vpn_url" ]; then
-        echo -e "${RED}[✖]${NC} No download link found in the response"
-        exit 1
-    fi
-
-    if ! command -v wg >/dev/null 2>&1; then
-        echo -e "${YELLOW}[⋯]${NC} WireGuard is not installed. Installing..."
-        install_wireguard
-    fi
-
-    # Wait a bit before requesting the configuration file
-    echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
-    sleep 3
-
-    # Now download VPN configuration after ensuring WireGuard is working
-    echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
-    curl -o /etc/wireguard/wg0.conf "$vpn_url"
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Failed to download Drone VPN file"
-        exit 1
-    fi
-
-    # Validate the configuration file - check if it's XML instead of WireGuard config
-    if grep -q "<?xml" /etc/wireguard/wg0.conf; then
-        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (XML detected)"
-        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
-        head -n 5 /etc/wireguard/wg0.conf
-        echo -e "${YELLOW}[⋯]${NC} The download URL may be expired or invalid."
-        echo -e "${YELLOW}[⋯]${NC} Please try activating again with a new token."
-        exit 1
-    fi
-
-    # Validate the configuration has required WireGuard sections
-    if ! grep -q "\[Interface\]" /etc/wireguard/wg0.conf; then
-        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (missing [Interface] section)"
-        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
-        head -n 5 /etc/wireguard/wg0.conf
-        exit 1
-    fi
-
-    echo -e "${YELLOW}[⋯]${NC} Enabling and starting VPN service..."
-    systemctl enable wg-quick@wg0
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Failed to enable wg-quick service"
-        exit 1
-    fi
-
-    systemctl stop wg-quick@wg0 >/dev/null 2>&1
-    sleep 2  # Short pause to ensure service has completely stopped
-
-    if ! systemctl start wg-quick@wg0; then
-        echo -e "${RED}[✖]${NC} Failed to start WireGuard service. Please check the configuration."
-        systemctl status wg-quick@wg0
-        exit 1
-    fi
-
-    # Wait for the VPN connection to establish
-    echo -e "${YELLOW}[⋯]${NC} Waiting for VPN connection to establish..."
-    sleep 5
-
-    # Verify VPN connection
-    if ! wg show wg0 >/dev/null 2>&1; then
-        echo -e "${RED}[✖]${NC} VPN connection failed to establish."
-        systemctl status wg-quick@wg0
-        exit 1
-    fi
-
-    echo -e "${GREEN}[✔]${NC} VPN connection established"
-    
-    username=$(echo "$response" | jq -r '.username')
-    password=$(echo "$response" | jq -r '.password')
-    repository=$(echo "$response" | jq -r '.repository')
-
-    echo -e "${YELLOW}[⋯]${NC} Logging in to Docker registry..."
-    docker login -u $username -p $password $repository
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Failed to login to Docker registry"
-        exit 1
-    fi
-
-    systemctl enable docker
-
-    echo -e "${YELLOW}[⋯]${NC} Downloading Docker Compose configuration..."
-    compose=$(echo "$response" | jq -r '.compose')
-    curl --connect-timeout 15 --max-time 15 -o docker-compose.yml "$compose"
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Failed to download Docker Compose file"
-        exit 1
-    fi
-
-    chown skycore docker-compose.yml
-    chown -R skycore /home/skycore
-    chmod -R 755 /home/skycore
-
-    echo -e "${YELLOW}[⋯]${NC} Starting Docker containers..."
-    docker compose pull
-    
-    # If specific services are specified, start only those
-    if [ -n "$SERVICES" ]; then
-        echo -e "${YELLOW}[⋯]${NC} Starting selected services: $SERVICES"
-        # Convert comma-separated list to space-separated for docker compose
-        SERVICES_LIST=${SERVICES//,/ }
-        docker compose up -d $SERVICES_LIST
-    else
-        echo -e "${YELLOW}[⋯]${NC} Starting all services"
-        docker compose up -d
-    fi
-
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[✖]${NC} Failed to start Docker containers"
-        exit 1
-    fi
-
-    # Create configuration file
-    echo -e "${YELLOW}[⋯]${NC} Creating configuration file..."
-    CONFIG_FILE="/home/skycore/skycore.conf"
-    
-    # Prepare services string for config
-    if [ -n "$SERVICES" ]; then
-        SERVICES_CONFIG="$SERVICES"
-    else
-        # If all services were started, list them all
-        SERVICES_CONFIG="drone-mavros,camera-proxy,mavproxy,ws_proxy"
-    fi
-    
-    # Write to config file
-    cat > "$CONFIG_FILE" << EOF
-activated: true
-token: $TOKEN
-services: $SERVICES_CONFIG
-activation_date: $(date +"%Y-%m-%d %H:%M:%S")
-EOF
-    
-    # Set permissions
-    chown skycore:skycore "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"  # Only owner can read/write
-    
-    echo -e "${GREEN}[✔]${NC} Configuration saved to $CONFIG_FILE"
-
-    # Grant Docker permissions to user
-    echo -e "${YELLOW}[⋯]${NC} Granting Docker permissions to the current user..."
-    # Get the current user (if running with sudo)
-    CURRENT_USER=${SUDO_USER:-$(whoami)}
-    
-    # Skip if already root
-    if [ "$CURRENT_USER" != "root" ]; then
-        if getent group docker | grep -q "\b${CURRENT_USER}\b"; then
-            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER already has Docker permissions"
-        else
-            usermod -aG docker $CURRENT_USER
-            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER added to the docker group"
-            echo -e "${YELLOW}[⋯]${NC} You may need to log out and log back in for the changes to take effect"
-            echo -e "${YELLOW}[⋯]${NC} Or run 'newgrp docker' in your terminal to apply permissions immediately"
-        fi
-    fi
-
-    echo -e "${GREEN}[✔]${NC} Drone activation is complete."
+    sync
+    echo -e "${GREEN}[✔]${NC} All partitions flashed successfully"
 }
 
 cleanup() {
