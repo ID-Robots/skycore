@@ -136,12 +136,12 @@ clone_drive() {
             ;;
         --help | -h)
             echo "Usage: skycore clone --source SOURCE_DEVICE [options]"
-            echo "  --source, -s: Source device (e.g., /dev/nvme0n1 or /dev/sda)"
+            echo "  --source, -s: Source device (e.g. /dev/sda)"
             echo "  --compress, -c: Compress the image files"
             echo "  --output, -o: Output directory for image files (default: current directory)"
             echo "  --debug, -d: Enable debug mode (verbose output)"
             echo "  --archive, -a: Create archive of backup (provide archive name without extension)"
-            echo "Example: skycore clone --source /dev/nvme0n1 --compress --output /tmp/backup"
+            echo "Example: skycore clone --source /dev/sda --compress --output /tmp/backup"
             exit 0
             ;;
         *)

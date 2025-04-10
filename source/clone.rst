@@ -66,7 +66,7 @@ Below are some examples of how to use the clone command:
 
    .. code-block:: bash
 
-      sudo skycore clone --source /dev/nvme0n1
+      sudo skycore clone --source /dev/sda
 
 2. Clone with compression to a specific directory:
 

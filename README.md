@@ -34,6 +34,12 @@ Activate your drone with the following command:
 sudo skycore activate --token <drone_token>
 ```
 
+You can specify which services to run during activation:
+
+```bash
+sudo skycore activate --token <drone_token> --services drone-mavros,mavproxy
+```
+
 For more details on activation options and troubleshooting, see the [Activation Documentation](https://id-robots.github.io/skycore/activate.html).
 
 ### Cloning Drives
@@ -41,7 +47,7 @@ For more details on activation options and troubleshooting, see the [Activation 
 SkyCore includes a powerful drive cloning feature to backup your Jetson device:
 
 ```bash
-sudo skycore clone --source /dev/nvme0n1 [options]
+sudo skycore clone --source /dev/sda [options]
 ```
 
 Common options:
@@ -53,7 +59,7 @@ Common options:
 Example (create a compressed backup archive):
 
 ```bash
-sudo skycore clone --source /dev/nvme0n1 --compress --archive my_jetson_backup
+sudo skycore clone --source /dev/sda --compress --archive my_jetson_backup
 ```
 
 To restore a backup to a new drive:
@@ -114,17 +120,14 @@ SkyCore manages several Docker services that are essential for drone operation:
 
 ### Managing Services
 
-Start specific services (after activation):
-```bash
-sudo skycore activate --token <drone_token> --services drone-mavros,mavproxy
-```
-
 Start all configured services:
+
 ```bash
 sudo skycore up
 ```
 
 Stop all running services:
+
 ```bash
 sudo skycore down
 ```
@@ -142,6 +145,7 @@ pip3 install -r requirements-docs.txt
 ```
 
 Required packages are listed in `requirements-docs.txt` and include:
+
 - Sphinx and extensions
 - Read the Docs theme
 - MyST Parser for Markdown support

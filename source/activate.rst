@@ -10,7 +10,7 @@ Usage
 
 .. code-block:: bash
 
-   skycore activate --token <Drone Token> [options]
+   sudo skycore activate --token <Drone Token> [options]
 
 Parameters
 ----------
@@ -28,23 +28,29 @@ Available services:
 Examples
 --------
 
-Basic activation (starts default services: drone-mavros and mavproxy):
+Basic activation with default services (drone-mavros and mavproxy):
 
 .. code-block:: bash
 
-   skycore activate --token 1234567890
+   sudo skycore activate --token 1234567890
+
+Recommended approach with explicit service selection:
+
+.. code-block:: bash
+
+   sudo skycore activate --token 1234567890 --services drone-mavros,mavproxy
 
 Start all available services:
 
 .. code-block:: bash
 
-   skycore activate --token 1234567890 --services drone-mavros,camera-proxy,mavproxy,ws_proxy
+   sudo skycore activate --token 1234567890 --services drone-mavros,camera-proxy,mavproxy,ws_proxy
 
 Start only specific services:
 
 .. code-block:: bash
 
-   skycore activate --token 1234567890 --services camera-proxy,ws_proxy
+   sudo skycore activate --token 1234567890 --services camera-proxy,ws_proxy
 
 How It Works
 ------------
@@ -90,16 +96,16 @@ Managing Services
 
 SkyCore provides commands to manage the Docker services after activation:
 
-* ``skycore up``: Start the services listed in the configuration file
-* ``skycore down``: Stop all Docker services
+* ``sudo skycore up``: Start the services listed in the configuration file
+* ``sudo skycore down``: Stop all Docker services
 
 .. code-block:: bash
 
    # Start services from the configuration
-   skycore up
+   sudo skycore up
 
    # Stop all services
-   skycore down
+   sudo skycore down
 
 Environment Variables
 ---------------------
@@ -110,7 +116,7 @@ To use a different environment:
 
 .. code-block:: bash
 
-   STAGE=dev skycore activate --token <Drone Token>
+   STAGE=dev sudo skycore activate --token <Drone Token>
 
 Troubleshooting
 ---------------
