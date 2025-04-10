@@ -31,7 +31,7 @@ Add a new vehicle to SkyHub by visiting: [https://skyhub.ai/home?dialog=app-crea
 Activate your drone with the following command:
 
 ```bash
-sudo skycore activate <drone_token>
+sudo skycore activate --token <drone_token>
 ```
 
 For more details on activation options and troubleshooting, see the [Activation Documentation](https://id-robots.github.io/skycore/activate.html).

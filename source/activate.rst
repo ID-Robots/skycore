@@ -10,14 +10,13 @@ Usage
 
 .. code-block:: bash
 
-   skycore activate [options] <Drone Token>
+   skycore activate --token <Drone Token> [options]
 
 Parameters
 ----------
 
-* ``<Drone Token>``: The activation token for the drone (required)
-* ``--token, -t <token>``: Alternative way to specify the activation token
-* ``--services, -s <list>``: Comma-separated list of services to start (default: all services)
+* ``--token, -t <token>``: The activation token for the drone (required)
+* ``--services, -s <list>``: Comma-separated list of services to start (default: drone-mavros,mavproxy)
   
 Available services:
 
@@ -29,17 +28,23 @@ Available services:
 Examples
 --------
 
-Basic activation (starts all services):
+Basic activation (starts default services: drone-mavros and mavproxy):
 
 .. code-block:: bash
 
-   skycore activate 1234567890
+   skycore activate --token 1234567890
+
+Start all available services:
+
+.. code-block:: bash
+
+   skycore activate --token 1234567890 --services drone-mavros,camera-proxy,mavproxy,ws_proxy
 
 Start only specific services:
 
 .. code-block:: bash
 
-   skycore activate --token 1234567890 --services drone-mavros,mavproxy
+   skycore activate --token 1234567890 --services camera-proxy,ws_proxy
 
 How It Works
 ------------
@@ -50,7 +55,7 @@ The activation process includes the following steps:
 2. Downloads and configures the VPN connection
 3. Sets up Docker credentials for accessing the container registry
 4. Downloads the Docker Compose configuration
-5. Starts the selected services (or all services by default)
+5. Starts the selected services (defaults to drone-mavros and mavproxy)
 6. Creates a configuration file at ``~/skycore.conf``
 7. Grants Docker permissions to the current user
 
@@ -61,12 +66,24 @@ Configuration File
 
 During activation, SkyCore creates a configuration file at ``/home/skycore/skycore.conf`` that contains:
 
-* Activation status
-* The token used for activation
-* The list of services that were activated
-* Activation timestamp
+* ``activated``: Current activation status (true/false)
+* ``token``: The token used for activation
+* ``services``: Comma-separated list of activated services
+* ``activation_date``: Timestamp of when the drone was activated
 
-This file is used by the ``up`` command to restart the same services after a reboot.
+Example ``skycore.conf``:
+
+.. code-block:: yaml
+
+    activated: true
+    token: 4773854478
+    services: drone-mavros,mavproxy
+    activation_date: 2025-04-10 15:39:05
+
+This file is used by the ``up`` command to restart the same services after a reboot. You can manually edit the ``services`` line to change which services will be started by the ``up`` command.
+
+.. note::
+   The configuration file is automatically created during activation, but you can modify it later to adjust which services should be managed by the ``up`` command.
 
 Managing Services
 -----------------
@@ -93,7 +110,7 @@ To use a different environment:
 
 .. code-block:: bash
 
-   STAGE=dev skycore activate <Drone Token>
+   STAGE=dev skycore activate --token <Drone Token>
 
 Troubleshooting
 ---------------

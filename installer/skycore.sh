@@ -565,7 +565,7 @@ flash_device_with_images() {
                 exit 0
                 ;;
             *)
-                # If no explicit token parameter, use positional argument
+                # If no flag is provided, assume it's the token (for backward compatibility)
                 if [ -z "$TOKEN" ]; then
                     TOKEN="$1"
                 fi
@@ -574,10 +574,9 @@ flash_device_with_images() {
         esac
     done
 
-    # Check if token is provided
     if [ -z "$TOKEN" ]; then
-        echo -e "${RED}[✖]${NC} No drone token provided. Use token parameter to specify the token."
-        echo "Usage: skycore activate <Drone Token> or skycore activate --token <Drone Token>"
+        echo -e "${RED}[✖]${NC} No drone token provided. Use --token parameter to specify the token."
+        echo "Usage: skycore activate --token <Drone Token> [--services <service1,service2,...]"
         exit 1
     fi
 
@@ -766,13 +765,37 @@ cleanup() {
 activate_drone() {
     check_root
 
-    if [ $# -lt 1 ]; then
-        echo -e "${RED}[✖]${NC} No drone token provided. Use token parameter to specify the token."
-        echo "Usage: skycore activate <Drone Token> or skycore activate --token <Drone Token>"
+    TOKEN=""
+    # Set default services to drone-mavros and mavproxy
+    SERVICES="drone-mavros,mavproxy"
+
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --token|-t)
+                TOKEN="$2"
+                shift 2
+                ;;
+            --services|-s)
+                SERVICES="$2"
+                shift 2
+                ;;
+            *)
+                # If no flag is provided, assume it's the token (for backward compatibility)
+                if [ -z "$TOKEN" ]; then
+                    TOKEN="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$TOKEN" ]; then
+        echo -e "${RED}[✖]${NC} No drone token provided. Use --token parameter to specify the token."
+        echo "Usage: skycore activate --token <Drone Token> [--services <service1,service2,...]"
         exit 1
     fi
 
-    TOKEN=$1
     STAGE=${STAGE:-prod}
     
     echo -e "${YELLOW}[⋯]${NC} Activating drone with token on $STAGE environment..."
@@ -1046,7 +1069,8 @@ elif [[ "$1" == "help" ]]; then
     echo "    Options:"
     echo "      --token, -t <token>     - Specify the activation token"
     echo "      --services, -s <list>   - Comma-separated list of services to start"
-    echo "                              (drone-mavros,camera-proxy,mavproxy,ws_proxy)"
+    echo "                              (default: drone-mavros,mavproxy)"
+    echo "                              (available: drone-mavros,camera-proxy,mavproxy,ws_proxy)"
     echo "  skycore up        - Start services listed in skycore.conf"
     echo "  skycore down      - Stop all Docker services"
     echo "  skycore install-wireguard  - Install WireGuard on the system"
