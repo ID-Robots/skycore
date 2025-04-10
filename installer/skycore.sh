@@ -1,36 +1,38 @@
 #!/bin/bash
 
-echo -e "\e[1;36m"
-echo "███████ ██   ██ ██    ██  ██████  ██████  ██████  ███████"
-echo "██      ██  ██   ██  ██  ██      ██    ██ ██   ██ ██      "
-echo "███████ █████     ████   ██      ██    ██ ██████  █████   "
-echo "     ██ ██  ██     ██    ██      ██    ██ ██   ██ ██      "
-echo "███████ ██   ██    ██     ██████  ██████  ██   ██ ███████ "
-echo "Made with love by IDRobots"
-echo "Docs: https://id-robots.github.io/skycore/"
-echo ""
-echo "En Taro Tassadar! Prismatic core online."
-echo ""
-echo -e "\e[0m"
-
-# Color Definitions
 GREEN='\e[32m'
 CYAN='\e[36m'
 YELLOW='\e[33m'
 RED='\e[31m'
 BLUE='\e[34m'
 PURPLE='\e[35m'
-NC='\e[0m' # No Color
+NC='\e[0m'
 
-# Install WireGuard functionality
+print_banner() {
+    echo -e "${CYAN}"
+    echo "███████ ██   ██ ██    ██  ██████  ██████  ██████  ███████"
+    echo "██      ██  ██   ██  ██  ██      ██    ██ ██   ██ ██     "
+    echo "███████ █████     ████   ██      ██    ██ ██████  █████  "
+    echo "     ██ ██  ██     ██    ██      ██    ██ ██   ██ ██     "
+    echo "███████ ██   ██    ██     ██████  ██████  ██   ██ ███████"
+    echo "Made with love by IDRobots"
+    echo "Docs: https://id-robots.github.io/skycore/"
+    echo -e "${NC}"
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}[✖]${NC} This script must be run as root" 
+        exit 1
+    fi
+}
+
 install_wireguard() {
     echo -e "${YELLOW}[⋯]${NC} Installing WireGuard..."
     
-    # Install WireGuard tools
     apt-get update -y
     apt-get install -y wireguard wireguard-tools git curl
 
-    # Check if kernel module is available
     if modprobe wireguard 2>/dev/null; then
         echo -e "${GREEN}[✔]${NC} WireGuard kernel module is available."
         return 0
@@ -38,10 +40,9 @@ install_wireguard() {
     
     echo -e "${YELLOW}[⋯]${NC} WireGuard kernel module not available. Setting up userspace implementation..."
     
-    # Install latest Go
     echo -e "${YELLOW}[⋯]${NC} Installing latest Go..."
     cd /tmp
-    GO_VERSION="1.22.1"  # Hardcode to a known working version for stability
+    GO_VERSION="1.22.1"
     GO_PACKAGE="go${GO_VERSION}.linux-arm64.tar.gz"
     curl -sLO "https://go.dev/dl/${GO_PACKAGE}"
     
@@ -54,20 +55,16 @@ install_wireguard() {
     rm -rf /usr/local/go
     tar -C /usr/local -xzf "${GO_PACKAGE}"
     
-    # Add Go to system PATH
     echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/golang.sh
     chmod +x /etc/profile.d/golang.sh
     
-    # Set Go binary path for direct use (avoids PATH issues in current shell)
     GO_BIN="/usr/local/go/bin/go"
     echo -e "${GREEN}[✔]${NC} Latest Go installed at /usr/local/go: $($GO_BIN version)"
     
-    # Clone and build latest wireguard-go with specific version (0.0.20230223 is known to work with Go 1.20+)
     echo -e "${YELLOW}[⋯]${NC} Building wireguard-go..."
     cd /tmp
     rm -rf wireguard-go*
     
-    # First try latest
     git clone https://git.zx2c4.com/wireguard-go
     cd wireguard-go
     
@@ -92,38 +89,28 @@ install_wireguard() {
     
     PATH="/usr/local/go/bin:$PATH" make install
     
-    # Create systemd override to use userspace implementation
     mkdir -p /etc/systemd/system/wg-quick@wg0.service.d/
     echo -e '[Service]\nEnvironment="WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go"' > /etc/systemd/system/wg-quick@wg0.service.d/override.conf
     systemctl daemon-reload
     
-    # Verify installation
     if command -v wireguard-go >/dev/null 2>&1; then
         echo -e "${GREEN}[✔]${NC} WireGuard userspace implementation installed: $(wireguard-go --version 2>&1 || echo 'version unavailable')"
     else
         echo -e "${RED}[✖]${NC} Failed to install wireguard-go. VPN functionality may be limited."
     fi
     
-    # Notify user about Go installation
     echo -e "${YELLOW}[⋯]${NC} Note: To use the new Go version in your current shell, run: source /etc/profile.d/golang.sh"
 }
 
-# Clone drive functionality
 clone_drive() {
-    # Check if running as root
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}[✖]${NC} This script must be run as root" 
-        exit 1
-    fi
+    check_root
 
-    # Default values
     COMPRESS=false
     OUTPUT_DIR="$(pwd)"
     DEBUG=false
     CREATE_ARCHIVE=false
     SOURCE_DEVICE=""
 
-    # Parse clone command arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --source|-s)
@@ -165,23 +152,19 @@ clone_drive() {
         esac
     done
 
-    # Check if required arguments are provided
     if [ -z "$SOURCE_DEVICE" ]; then
         echo -e "${RED}[✖]${NC} No source device specified. Use --source to specify the device."
         echo "Use 'skycore clone --help' for usage information"
         exit 1
     fi
 
-    # Check if source device exists
     if [ ! -b "$SOURCE_DEVICE" ]; then
         echo -e "${RED}[✖]${NC} Error: Source device $SOURCE_DEVICE does not exist or is not a block device."
         exit 1
     fi
 
-    # Create output directory if it doesn't exist
     mkdir -p "$OUTPUT_DIR"
 
-    # Display detected devices and ask for confirmation
     echo "================= IMAGE CREATION SUMMARY ================="
     echo -e "${YELLOW}[⋯]${NC} Source device: $SOURCE_DEVICE"
     lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT "$SOURCE_DEVICE"
@@ -202,23 +185,19 @@ clone_drive() {
         exit 0
     fi
 
-    # Step 1: Check if partclone is installed
     if ! command -v partclone.dd &> /dev/null; then
         echo -e "${RED}[✖]${NC} Error: partclone is not installed. Please install it with:"
         echo "  sudo apt install partclone"
         exit 1
     fi
 
-    # Get list of source partitions with full paths - properly formatted
     SOURCE_BASE=$(basename "$SOURCE_DEVICE")
     SOURCE_PARTITIONS=$(find /dev -name "${SOURCE_BASE}[0-9]*" | sort)
 
-    # Display the partitions we found
     echo -e "${YELLOW}[⋯]${NC} Found partitions to clone:"
     echo "$SOURCE_PARTITIONS"
     echo -e "${YELLOW}[⋯]${NC} Total: $(echo "$SOURCE_PARTITIONS" | wc -l) partitions"
 
-    # Check for mounted partitions on source device
     MOUNTED=false
     for part in $SOURCE_PARTITIONS; do
         if mount | grep -q "$part"; then
@@ -235,7 +214,6 @@ clone_drive() {
             exit 0
         fi
         
-        # Unmount all partitions from source
         for part in $SOURCE_PARTITIONS; do
             if mount | grep -q "$part"; then
                 echo -e "${YELLOW}[⋯]${NC} Unmounting $part"
@@ -244,38 +222,32 @@ clone_drive() {
         done
     fi
 
-    # Step 2: Backup the partition table
     echo -e "${YELLOW}[⋯]${NC} Backing up partition table from $SOURCE_DEVICE"
     PARTITION_TABLE="$OUTPUT_DIR/jetson_nvme_partitions.sfdisk"
     sfdisk -d "$SOURCE_DEVICE" > "$PARTITION_TABLE"
     echo -e "${GREEN}[✔]${NC} Partition table saved to $PARTITION_TABLE"
 
-    # Save block device info for reference
     blkid "$SOURCE_DEVICE"* > "$OUTPUT_DIR/jetson_nvme_blkinfo.txt" 2>/dev/null || true
     echo -e "${GREEN}[✔]${NC} Block device info saved to $OUTPUT_DIR/jetson_nvme_blkinfo.txt"
 
-    # Step 3: Clone each partition
     echo -e "${YELLOW}[⋯]${NC} Starting partition cloning..."
 
     for part in $SOURCE_PARTITIONS; do
         part_name=$(basename "$part")
         part_num=$(echo "$part_name" | grep -o '[0-9]*$')
         
-        # Skip if part_num is empty (e.g., for whole disk devices)
         if [ -z "$part_num" ]; then
             echo -e "${YELLOW}[⋯]${NC} Skipping $part - not a partition"
             continue
         fi
         
-        # Determine filesystem type
         fs_type=$(lsblk -no FSTYPE "$part")
         if [ -z "$fs_type" ]; then
-            fs_type="dd"  # Use dd mode for unknown filesystem types
+            fs_type="dd"
         fi
         
         echo -e "${YELLOW}[⋯]${NC} Cloning partition $part (filesystem: $fs_type)"
         
-        # Set appropriate partclone command based on filesystem
         case $fs_type in
             ext4)
                 PARTCLONE_CMD="partclone.ext4"
@@ -294,10 +266,8 @@ clone_drive() {
                 ;;
         esac
         
-        # Prepare output filename
         img_file="$OUTPUT_DIR/jetson_nvme_p${part_num}.img"
         
-        # Clone the partition, with or without compression
         if [ "$COMPRESS" = true ]; then
             echo -e "${YELLOW}[⋯]${NC} Using compression for $part"
             if command -v lz4 &> /dev/null; then
@@ -313,17 +283,14 @@ clone_drive() {
         fi
     done
 
-    # Sync to ensure all writes are completed
     sync
 
     echo -e "${GREEN}[✔]${NC} Image creation completed successfully!"
     echo -e "${YELLOW}[⋯]${NC} All partition images are saved in $OUTPUT_DIR"
 
-    # Step 4: Create archive if requested
     if [ "$CREATE_ARCHIVE" = true ]; then
         echo -e "${YELLOW}[⋯]${NC} Creating archive ${ARCHIVE_NAME}.tar.gz..."
         
-        # Create a manifest file with metadata
         MANIFEST="$OUTPUT_DIR/manifest.txt"
         echo "Jetson Backup Manifest" > "$MANIFEST"
         echo "Created: $(date)" >> "$MANIFEST"
@@ -336,7 +303,6 @@ clone_drive() {
         echo "Files included:" >> "$MANIFEST"
         ls -lh "$OUTPUT_DIR" >> "$MANIFEST"
         
-        # Create the archive (use current directory to avoid including full path)
         current_dir=$(pwd)
         cd "$OUTPUT_DIR" || exit 1
         tar czf "${ARCHIVE_NAME}.tar.gz" ./*
@@ -349,19 +315,13 @@ clone_drive() {
     echo -e "${YELLOW}[⋯]${NC} Use 'skycore flash' to restore these images to a target drive."
 
     if [ "$DEBUG" = true ]; then
-        set +x  # Disable debug output
+        set +x
     fi
 }
 
-# Flash drive functionality
 flash_drive() {
-    # Check if running as root
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}[✖]${NC} This script must be run as root" 
-        exit 1
-    fi
+    check_root
 
-    # Default values
     TARGET_DEVICE=""
     S3_BUCKET="s3://jetson-nano-ub-20-bare"
     IMAGE_NAME="orion-nano-8gb-jp6.2.tar.gz"
@@ -372,7 +332,6 @@ flash_drive() {
     INPUT_DIR=""
     FROM_S3=true
 
-    # Parse flash command arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --target|-t)
@@ -420,33 +379,28 @@ flash_drive() {
         esac
     done
 
-    # Check if required arguments are provided
     if [ -z "$TARGET_DEVICE" ]; then
         echo -e "${RED}[✖]${NC} No target device specified. Use --target to specify the device."
         echo "Use 'skycore flash --help' for usage information"
         exit 1
     fi
 
-    # Check for both archive and input dir
     if [ -n "$ARCHIVE_PATH" ] && [ -n "$INPUT_DIR" ]; then
         echo -e "${RED}[✖]${NC} Error: Cannot specify both --archive and --input options."
         echo "Use 'skycore flash --help' for usage information"
         exit 1
     fi
 
-    # Set archive file path if downloading from S3
     if [ "$FROM_S3" = true ]; then
         ARCHIVE_FILE="${TMP_DIR}/${IMAGE_NAME}"
     else
         if [ -n "$ARCHIVE_PATH" ]; then
-            # Check if archive file exists
             if [ ! -f "$ARCHIVE_PATH" ]; then
                 echo -e "${RED}[✖]${NC} Error: Archive file $ARCHIVE_PATH does not exist."
                 exit 1
             fi
             ARCHIVE_FILE="$ARCHIVE_PATH"
         elif [ -n "$INPUT_DIR" ]; then
-            # Check if input directory exists
             if [ ! -d "$INPUT_DIR" ]; then
                 echo -e "${RED}[✖]${NC} Error: Input directory $INPUT_DIR does not exist."
                 exit 1
@@ -458,296 +412,15 @@ flash_drive() {
         fi
     fi
 
-    # Check if target device exists
     if [ ! -b "$TARGET_DEVICE" ]; then
         echo -e "${RED}[✖]${NC} Error: Target device $TARGET_DEVICE does not exist or is not a block device."
         exit 1
     fi
 
-    # Create temporary directories
     mkdir -p "$TMP_DIR"
     mkdir -p "$TMP_EXTRACT_DIR"
 
-    # Display available block devices
-    list_block_devices() {
-        echo -e "${YELLOW}[⋯]${NC} Available block devices:"
-        lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
-    }
-
-    # Install dependencies
-    install_dependencies() {
-        echo -e "${YELLOW}[⋯]${NC} Checking for required dependencies..."
-        apt-get update -y
-        apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone
-
-        # Check if AWS CLI is installed (only if downloading from S3)
-        if [ "$FROM_S3" = true ]; then
-            echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
-            if ! command -v aws >/dev/null 2>&1; then
-                echo -e "${YELLOW}[⋯]${NC} AWS CLI not found. Installing AWS CLI via pip..."
-                pip3 install awscli || {
-                    echo -e "${RED}[✖]${NC} Failed to install AWS CLI."
-                    exit 1
-                }
-            else
-                echo -e "${GREEN}[✔]${NC} AWS CLI is already installed."
-            fi
-        fi
-    }
-
-    # Download the image from S3
-    download_image() {
-        if [ "$FROM_S3" = true ]; then
-            if [ -f "$ARCHIVE_FILE" ]; then
-                echo -e "${GREEN}[✔]${NC} Archive already exists at $ARCHIVE_FILE."
-                echo -e "${YELLOW}[⋯]${NC} Reusing existing archive."
-            else
-                echo -e "${YELLOW}[⋯]${NC} Downloading archive from S3..."
-                IMAGE_S3_URI="${S3_BUCKET}/${IMAGE_NAME}"
-                aws s3 cp "$IMAGE_S3_URI" "$ARCHIVE_FILE" --no-sign-request || {
-                    echo -e "${RED}[✖]${NC} Failed to download the image ${IMAGE_NAME} from ${S3_BUCKET}."
-                    exit 1
-                }
-                echo -e "${GREEN}[✔]${NC} Archive downloaded successfully."
-            fi
-        else
-            echo -e "${GREEN}[✔]${NC} Using local source instead of downloading from S3."
-        fi
-    }
-
-    # Extract the image
-    extract_image() {
-        # If we're using an input directory directly, skip extraction
-        if [ -n "$INPUT_DIR" ]; then
-            echo -e "${GREEN}[✔]${NC} Using existing directory: $INPUT_DIR"
-            # Set TMP_EXTRACT_DIR to the input directory for consistent processing
-            TMP_EXTRACT_DIR="$INPUT_DIR"
-            return
-        fi
-
-        echo -e "${YELLOW}[⋯]${NC} Extracting archive to temporary directory: $TMP_EXTRACT_DIR"
-        # Clean extraction directory first
-        rm -rf "$TMP_EXTRACT_DIR"/*
-        mkdir -p "$TMP_EXTRACT_DIR"
-        
-        # Extract the archive
-        tar -xzf "$ARCHIVE_FILE" -C "$TMP_EXTRACT_DIR"
-        echo -e "${GREEN}[✔]${NC} Archive extracted successfully."
-    }
-
-    # Check for mounted partitions on target device
-    check_mounted_partitions() {
-        echo -e "${YELLOW}[⋯]${NC} Checking for mounted partitions on $TARGET_DEVICE..."
-        TARGET_PARTITIONS=$(lsblk -no NAME "$TARGET_DEVICE" | grep -v "$(basename "$TARGET_DEVICE")" | sed "s/^/\/dev\//")
-
-        MOUNTED=false
-        for part in $TARGET_PARTITIONS; do
-            if mount | grep -q "$part"; then
-                echo -e "${YELLOW}[⋯]${NC} Warning: $part is currently mounted. It will be unmounted."
-                MOUNTED=true
-            fi
-        done
-
-        if [ "$MOUNTED" = true ]; then
-            echo -n "Proceed with unmounting? (y/N): "
-            read UNMOUNT_CONFIRM
-            if [[ "$UNMOUNT_CONFIRM" != "y" && "$UNMOUNT_CONFIRM" != "Y" ]]; then
-                echo -e "${YELLOW}[⋯]${NC} Operation cancelled."
-                cleanup
-                exit 0
-            fi
-            
-            # Unmount all partitions from target
-            for part in $TARGET_PARTITIONS; do
-                if mount | grep -q "$part"; then
-                    echo -e "${YELLOW}[⋯]${NC} Unmounting $part"
-                    umount "$part"
-                fi
-            done
-        fi
-    }
-
-    # Flash the device
-    flash_device_with_images() {
-        # Check if partition table file exists
-        PARTITION_TABLE="$TMP_EXTRACT_DIR/jetson_nvme_partitions.sfdisk"
-        if [ ! -f "$PARTITION_TABLE" ]; then
-            echo -e "${RED}[✖]${NC} Error: Partition table file not found in the extracted archive."
-            cleanup
-            exit 1
-        fi
-
-        # Display confirmation
-        echo "================= FLASH DRIVE SUMMARY ================="
-        echo -e "${YELLOW}[⋯]${NC} Target device: $TARGET_DEVICE"
-        lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT "$TARGET_DEVICE"
-        echo ""
-        
-        if [ "$FROM_S3" = true ]; then
-            echo -e "${YELLOW}[⋯]${NC} Source image: $IMAGE_NAME from $S3_BUCKET"
-        elif [ -n "$ARCHIVE_PATH" ]; then
-            echo -e "${YELLOW}[⋯]${NC} Source archive: $ARCHIVE_PATH"
-        else
-            echo -e "${YELLOW}[⋯]${NC} Source directory: $INPUT_DIR"
-        fi
-        
-        if [ -f "$TMP_EXTRACT_DIR/manifest.txt" ]; then
-            echo "--- Archive Manifest ---"
-            head -n 10 "$TMP_EXTRACT_DIR/manifest.txt"
-            echo "------------------------"
-        fi
-        
-        echo "===================================================="
-        echo ""
-        echo -e "${RED}WARNING: All data on $TARGET_DEVICE will be permanently lost!${NC}"
-        echo -n "Do you want to continue? (y/N): "
-        read CONFIRM
-
-        if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-            echo -e "${YELLOW}[⋯]${NC} Operation cancelled."
-            cleanup
-            exit 0
-        fi
-
-        # Step 1: Restore the partition table to the target drive
-        echo -e "${YELLOW}[⋯]${NC} Preparing target drive $TARGET_DEVICE"
-        echo -e "${YELLOW}[⋯]${NC} Restoring partition table to $TARGET_DEVICE"
-        sfdisk "$TARGET_DEVICE" < "$PARTITION_TABLE"
-        echo -e "${GREEN}[✔]${NC} Partition table restored."
-
-        # Force kernel to re-read partition table
-        partprobe "$TARGET_DEVICE"
-        sleep 2  # Give the system time to recognize new partition layout
-
-        # Step 2: Get list of images to restore
-        echo -e "${YELLOW}[⋯]${NC} Looking for partition images in the extracted archive"
-        IMAGE_FILES=$(find "$TMP_EXTRACT_DIR" -name "jetson_nvme_p*.img*" | sort)
-
-        if [ -z "$IMAGE_FILES" ]; then
-            echo -e "${RED}[✖]${NC} Error: No partition image files found in the source."
-            cleanup
-            exit 1
-        fi
-
-        echo -e "${GREEN}[✔]${NC} Found $(echo "$IMAGE_FILES" | wc -l) partition image(s)"
-
-        # Step 3: Restore partition images to the target drive
-        echo -e "${YELLOW}[⋯]${NC} Starting partition restoration..."
-
-        for img_file in $IMAGE_FILES; do
-            # Extract partition number from filename
-            base_name=$(basename "$img_file")
-            if [[ "$base_name" =~ p([0-9]+)\.img ]]; then
-                part_num="${BASH_REMATCH[1]}"
-            elif [[ "$base_name" =~ p([0-9]+)\.img\.(gz|lz4) ]]; then
-                part_num="${BASH_REMATCH[1]}"
-            else
-                echo -e "${YELLOW}[⋯]${NC} Warning: Could not extract partition number from $base_name, skipping"
-                continue
-            fi
-            
-            # Determine target partition
-            target_base=$(basename "$TARGET_DEVICE")
-            # Check if target device name ends with a number
-            if [[ "$target_base" =~ [0-9]$ ]]; then
-                target_part="${TARGET_DEVICE}p${part_num}"
-            else
-                target_part="${TARGET_DEVICE}${part_num}"
-            fi
-            
-            # Skip if target partition doesn't exist
-            if [ ! -b "$target_part" ]; then
-                echo -e "${YELLOW}[⋯]${NC} Warning: Target partition $target_part does not exist. Skipping."
-                continue
-            fi
-            
-            # Determine filesystem type from the partition filename or blkinfo
-            fs_type=""
-            # First try to extract it from the blkinfo file if available
-            if [ -f "$TMP_EXTRACT_DIR/jetson_nvme_blkinfo.txt" ]; then
-                fs_info=$(grep -E "/dev/[a-zA-Z0-9]+${part_num}:" "$TMP_EXTRACT_DIR/jetson_nvme_blkinfo.txt" | grep -o "TYPE=\"[^\"]*\"" | cut -d'"' -f2)
-                if [ -n "$fs_info" ]; then
-                    fs_type="$fs_info"
-                fi
-            fi
-            
-            # If we couldn't determine the type from blkinfo, check the image file
-            if [ -z "$fs_type" ]; then
-                if [[ "$base_name" == *"ext4"* ]]; then
-                    fs_type="ext4"
-                elif [[ "$base_name" == *"vfat"* || "$base_name" == *"fat"* ]]; then
-                    fs_type="vfat"
-                elif [[ "$base_name" == *"ntfs"* ]]; then
-                    fs_type="ntfs"
-                elif [[ "$base_name" == *"xfs"* ]]; then
-                    fs_type="xfs"
-                else
-                    fs_type="dd"  # Default to dd mode if we can't determine
-                fi
-            fi
-            
-            # Set appropriate partclone command based on filesystem
-            case $fs_type in
-                ext4|ext3|ext2)
-                    PARTCLONE_CMD="partclone.ext4"
-                    ;;
-                vfat|fat32|fat16|fat12)
-                    PARTCLONE_CMD="partclone.vfat"
-                    ;;
-                ntfs)
-                    PARTCLONE_CMD="partclone.ntfs"
-                    ;;
-                xfs)
-                    PARTCLONE_CMD="partclone.xfs"
-                    ;;
-                *)
-                    PARTCLONE_CMD="partclone.dd"
-                    ;;
-            esac
-            
-            echo -e "${YELLOW}[⋯]${NC} Restoring partition to $target_part (filesystem: $fs_type)"
-            
-            # Restore the partition, with or without decompression
-            if [[ "$img_file" == *.lz4 ]]; then
-                echo -e "${YELLOW}[⋯]${NC} Decompressing and restoring from $img_file"
-                lz4 -d -c "$img_file" | $PARTCLONE_CMD -r -s - -o "$target_part"
-            elif [[ "$img_file" == *.gz ]]; then
-                echo -e "${YELLOW}[⋯]${NC} Decompressing and restoring from $img_file"
-                gzip -d -c "$img_file" | $PARTCLONE_CMD -r -s - -o "$target_part"
-            else
-                echo -e "${YELLOW}[⋯]${NC} Restoring from $img_file"
-                $PARTCLONE_CMD -r -s "$img_file" -o "$target_part"
-            fi
-            
-            echo -e "${GREEN}[✔]${NC} Partition image $img_file restored to $target_part"
-        done
-
-        # Sync to ensure all writes are completed
-        sync
-        echo -e "${GREEN}[✔]${NC} Flashing completed successfully!"
-    }
-
-    # Cleanup function
-    cleanup() {
-        echo -e "${YELLOW}[⋯]${NC} Cleaning up temporary files..."
-        # Only remove the extraction directory if we created it
-        if [ -z "$INPUT_DIR" ]; then
-            rm -rf "$TMP_EXTRACT_DIR"
-        fi
-        echo -e "${GREEN}[✔]${NC} Cleanup completed."
-    }
-
-    # Main execution flow
-    echo -e "${CYAN}"
-    echo "███████ ██   ██ ██    ██  ██████  ██████  ██████  ███████"
-    echo "██      ██  ██   ██  ██  ██      ██    ██ ██   ██ ██     "
-    echo "███████ █████     ████   ██      ██    ██ ██████  █████  "
-    echo "     ██ ██  ██     ██    ██      ██    ██ ██   ██ ██     "
-    echo "███████ ██   ██    ██     ██████  ██████  ██   ██ ███████"
-    echo "Made with love by IDRobots"
-    echo "https://skyhub.ai"
-    echo -e "${NC}"
-    
+    print_banner
     echo -e "${YELLOW}[⋯]${NC} SKYCORE Flash tool starting..."
     
     list_block_devices
@@ -766,11 +439,105 @@ flash_drive() {
     echo "3. Power on the Jetson and verify it boots correctly"
 }
 
-# Activate drone functionality
-activate_drone() {
-    # Check if running as root
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}[✖]${NC} This script must be run as root" 
+list_block_devices() {
+    echo -e "${YELLOW}[⋯]${NC} Available block devices:"
+    lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+}
+
+install_dependencies() {
+    echo -e "${YELLOW}[⋯]${NC} Checking for required dependencies..."
+    apt-get update -y
+    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone
+
+    if [ "$FROM_S3" = true ]; then
+        echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
+        if ! command -v aws >/dev/null 2>&1; then
+            echo -e "${YELLOW}[⋯]${NC} AWS CLI not found. Installing AWS CLI via pip..."
+            pip3 install awscli || {
+                echo -e "${RED}[✖]${NC} Failed to install AWS CLI."
+                exit 1
+            }
+        else
+            echo -e "${GREEN}[✔]${NC} AWS CLI is already installed."
+        fi
+    fi
+}
+
+download_image() {
+    if [ "$FROM_S3" = true ]; then
+        if [ -f "$ARCHIVE_FILE" ]; then
+            echo -e "${GREEN}[✔]${NC} Archive already exists at $ARCHIVE_FILE."
+            echo -e "${YELLOW}[⋯]${NC} Reusing existing archive."
+        else
+            echo -e "${YELLOW}[⋯]${NC} Downloading archive from S3..."
+            IMAGE_S3_URI="${S3_BUCKET}/${IMAGE_NAME}"
+            aws s3 cp "$IMAGE_S3_URI" "$ARCHIVE_FILE" --no-sign-request || {
+                echo -e "${RED}[✖]${NC} Failed to download the image ${IMAGE_NAME} from ${S3_BUCKET}."
+                exit 1
+            }
+            echo -e "${GREEN}[✔]${NC} Archive downloaded successfully."
+        fi
+    else
+        echo -e "${GREEN}[✔]${NC} Using local source instead of downloading from S3."
+    fi
+}
+
+extract_image() {
+    if [ -n "$INPUT_DIR" ]; then
+        echo -e "${GREEN}[✔]${NC} Using existing directory: $INPUT_DIR"
+        TMP_EXTRACT_DIR="$INPUT_DIR"
+        return
+    fi
+
+    if [ -d "$TMP_EXTRACT_DIR" ] && [ -f "$TMP_EXTRACT_DIR/jetson_nvme_partitions.sfdisk" ] && [ "$(find "$TMP_EXTRACT_DIR" -name "jetson_nvme_p*.img*" | wc -l)" -gt 0 ]; then
+        echo -e "${GREEN}[✔]${NC} Found existing extracted files in: $TMP_EXTRACT_DIR"
+        echo -e "${YELLOW}[⋯]${NC} Reusing existing extracted files."
+        return
+    fi
+
+    echo -e "${YELLOW}[⋯]${NC} Extracting archive to temporary directory: $TMP_EXTRACT_DIR"
+    rm -rf "$TMP_EXTRACT_DIR"/*
+    mkdir -p "$TMP_EXTRACT_DIR"
+    
+    tar -xzf "$ARCHIVE_FILE" -C "$TMP_EXTRACT_DIR"
+    echo -e "${GREEN}[✔]${NC} Archive extracted successfully."
+}
+
+check_mounted_partitions() {
+    echo -e "${YELLOW}[⋯]${NC} Checking for mounted partitions on $TARGET_DEVICE..."
+    TARGET_PARTITIONS=$(lsblk -no NAME "$TARGET_DEVICE" | grep -v "$(basename "$TARGET_DEVICE")" | sed "s/^/\/dev\//")
+
+    MOUNTED=false
+    for part in $TARGET_PARTITIONS; do
+        if mount | grep -q "$part"; then
+            echo -e "${YELLOW}[⋯]${NC} Warning: $part is currently mounted. It will be unmounted."
+            MOUNTED=true
+        fi
+    done
+
+    if [ "$MOUNTED" = true ]; then
+        echo -n "Proceed with unmounting? (y/N): "
+        read UNMOUNT_CONFIRM
+        if [[ "$UNMOUNT_CONFIRM" != "y" && "$UNMOUNT_CONFIRM" != "Y" ]]; then
+            echo -e "${YELLOW}[⋯]${NC} Operation cancelled."
+            cleanup
+            exit 0
+        fi
+        
+        for part in $TARGET_PARTITIONS; do
+            if mount | grep -q "$part"; then
+                echo -e "${YELLOW}[⋯]${NC} Unmounting $part"
+                umount "$part"
+            fi
+        done
+    fi
+}
+
+flash_device_with_images() {
+    PARTITION_TABLE="$TMP_EXTRACT_DIR/jetson_nvme_partitions.sfdisk"
+    if [ ! -f "$PARTITION_TABLE" ]; then
+        echo -e "${RED}[✖]${NC} Error: Partition table file not found in the extracted archive."
+        cleanup
         exit 1
     fi
 
@@ -819,7 +586,6 @@ activate_drone() {
     
     echo -e "${YELLOW}[⋯]${NC} Activating drone with token on $STAGE environment..."
     
-    # Make a curl request and store the JSON response
     echo -e "${YELLOW}[⋯]${NC} Contacting activation server..."
     response=$(curl --connect-timeout 15 --max-time 15 https://$STAGE.skyhub.ai:5000/api/v1/drone/activate -H "token: $TOKEN")
 
@@ -828,7 +594,6 @@ activate_drone() {
         exit 1
     fi
 
-    # Use jq to extract nested values from the JSON response
     vpn_url=$(echo "$response" | jq -r '.vpn')
 
     if [ -z "$vpn_url" ]; then
@@ -836,50 +601,10 @@ activate_drone() {
         exit 1
     fi
 
-    # Check if WireGuard is installed
     if ! command -v wg >/dev/null 2>&1; then
         echo -e "${YELLOW}[⋯]${NC} WireGuard is not installed. Installing..."
         install_wireguard
     fi
-
-    # Verify WireGuard is working
-    echo -e "${YELLOW}[⋯]${NC} Verifying WireGuard installation..."
-    
-    # Check for WireGuard command line tool
-    if ! command -v wg >/dev/null 2>&1; then
-        echo -e "${YELLOW}[⋯]${NC} WireGuard tools not detected after installation. Trying again..."
-        install_wireguard
-        
-        # Verify again after second installation attempt
-        if ! command -v wg >/dev/null 2>&1; then
-            echo -e "${RED}[✖]${NC} Failed to install WireGuard properly."
-            exit 1
-        fi
-    fi
-    
-    # Check for wireguard-go (userspace implementation) if needed
-    if ! modprobe wireguard 2>/dev/null; then
-        echo -e "${YELLOW}[⋯]${NC} WireGuard kernel module not available, checking userspace implementation..."
-        if ! command -v wireguard-go >/dev/null 2>&1; then
-            echo -e "${YELLOW}[⋯]${NC} Userspace implementation not found. Installing..."
-            install_wireguard
-            
-            if ! command -v wireguard-go >/dev/null 2>&1; then
-                echo -e "${RED}[✖]${NC} Failed to install WireGuard userspace implementation."
-                exit 1
-            fi
-        fi
-        
-        # Create userspace override if not already created
-        mkdir -p /etc/systemd/system/wg-quick@wg0.service.d/
-        echo -e '[Service]\nEnvironment="WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go"' > /etc/systemd/system/wg-quick@wg0.service.d/override.conf
-        systemctl daemon-reload
-    fi
-    
-    echo -e "${GREEN}[✔]${NC} WireGuard is properly installed and ready"
-
-    # Make sure WireGuard directory exists
-    mkdir -p /etc/wireguard
 
     # Wait a bit before requesting the configuration file
     echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
@@ -918,11 +643,9 @@ activate_drone() {
         exit 1
     fi
 
-    # Stop WireGuard if it's already running
     systemctl stop wg-quick@wg0 >/dev/null 2>&1
     sleep 2  # Short pause to ensure service has completely stopped
 
-    # Try to start the WireGuard service
     if ! systemctl start wg-quick@wg0; then
         echo -e "${RED}[✖]${NC} Failed to start WireGuard service. Please check the configuration."
         systemctl status wg-quick@wg0
@@ -963,7 +686,197 @@ activate_drone() {
         exit 1
     fi
 
+    chown skycore docker-compose.yml
+    chown -R skycore /home/skycore
+    chmod -R 755 /home/skycore
+
+    echo -e "${YELLOW}[⋯]${NC} Starting Docker containers..."
+    docker compose pull
+    
+    # If specific services are specified, start only those
+    if [ -n "$SERVICES" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Starting selected services: $SERVICES"
+        # Convert comma-separated list to space-separated for docker compose
+        SERVICES_LIST=${SERVICES//,/ }
+        docker compose up -d $SERVICES_LIST
+    else
+        echo -e "${YELLOW}[⋯]${NC} Starting all services"
+        docker compose up -d
+    fi
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to start Docker containers"
+        exit 1
+    fi
+
+    # Create configuration file
+    echo -e "${YELLOW}[⋯]${NC} Creating configuration file..."
+    CONFIG_FILE="/home/skycore/skycore.conf"
+    
+    # Prepare services string for config
+    if [ -n "$SERVICES" ]; then
+        SERVICES_CONFIG="$SERVICES"
+    else
+        # If all services were started, list them all
+        SERVICES_CONFIG="drone-mavros,camera-proxy,mavproxy,ws_proxy"
+    fi
+    
+    # Write to config file
+    cat > "$CONFIG_FILE" << EOF
+activated: true
+token: $TOKEN
+services: $SERVICES_CONFIG
+activation_date: $(date +"%Y-%m-%d %H:%M:%S")
+EOF
+    
     # Set permissions
+    chown skycore:skycore "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"  # Only owner can read/write
+    
+    echo -e "${GREEN}[✔]${NC} Configuration saved to $CONFIG_FILE"
+
+    # Grant Docker permissions to user
+    echo -e "${YELLOW}[⋯]${NC} Granting Docker permissions to the current user..."
+    # Get the current user (if running with sudo)
+    CURRENT_USER=${SUDO_USER:-$(whoami)}
+    
+    # Skip if already root
+    if [ "$CURRENT_USER" != "root" ]; then
+        if getent group docker | grep -q "\b${CURRENT_USER}\b"; then
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER already has Docker permissions"
+        else
+            usermod -aG docker $CURRENT_USER
+            echo -e "${GREEN}[✔]${NC} User $CURRENT_USER added to the docker group"
+            echo -e "${YELLOW}[⋯]${NC} You may need to log out and log back in for the changes to take effect"
+            echo -e "${YELLOW}[⋯]${NC} Or run 'newgrp docker' in your terminal to apply permissions immediately"
+        fi
+    fi
+
+    echo -e "${GREEN}[✔]${NC} Drone activation is complete."
+}
+
+cleanup() {
+    echo -e "${YELLOW}[⋯]${NC} Cleaning up temporary files..."
+    if [ -z "$INPUT_DIR" ]; then
+        rm -rf "$TMP_EXTRACT_DIR"
+    fi
+    echo -e "${GREEN}[✔]${NC} Cleanup completed."
+}
+
+activate_drone() {
+    check_root
+
+    if [ $# -lt 1 ]; then
+        echo -e "${RED}[✖]${NC} No drone token provided. Use token parameter to specify the token."
+        echo "Usage: skycore activate <Drone Token> or skycore activate --token <Drone Token>"
+        exit 1
+    fi
+
+    TOKEN=$1
+    STAGE=${STAGE:-prod}
+    
+    echo -e "${YELLOW}[⋯]${NC} Activating drone with token on $STAGE environment..."
+    
+    echo -e "${YELLOW}[⋯]${NC} Contacting activation server..."
+    response=$(curl --connect-timeout 15 --max-time 15 https://$STAGE.skyhub.ai:5000/api/v1/drone/activate -H "token: $TOKEN")
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Curl request failed"
+        exit 1
+    fi
+
+    vpn_url=$(echo "$response" | jq -r '.vpn')
+
+    if [ -z "$vpn_url" ]; then
+        echo -e "${RED}[✖]${NC} No download link found in the response"
+        exit 1
+    fi
+
+    if ! command -v wg >/dev/null 2>&1; then
+        echo -e "${YELLOW}[⋯]${NC} WireGuard is not installed. Installing..."
+        install_wireguard
+    fi
+
+    # Wait a bit before requesting the configuration file
+    echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
+    sleep 3
+
+    # Now download VPN configuration after ensuring WireGuard is working
+    echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
+    curl -o /etc/wireguard/wg0.conf "$vpn_url"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to download Drone VPN file"
+        exit 1
+    fi
+
+    # Validate the configuration file - check if it's XML instead of WireGuard config
+    if grep -q "<?xml" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (XML detected)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
+        echo -e "${YELLOW}[⋯]${NC} The download URL may be expired or invalid."
+        echo -e "${YELLOW}[⋯]${NC} Please try activating again with a new token."
+        exit 1
+    fi
+
+    # Validate the configuration has required WireGuard sections
+    if ! grep -q "\[Interface\]" /etc/wireguard/wg0.conf; then
+        echo -e "${RED}[✖]${NC} Invalid WireGuard configuration file (missing [Interface] section)"
+        echo -e "${YELLOW}[⋯]${NC} Content of downloaded file:"
+        head -n 5 /etc/wireguard/wg0.conf
+        exit 1
+    fi
+
+    echo -e "${YELLOW}[⋯]${NC} Enabling and starting VPN service..."
+    systemctl enable wg-quick@wg0
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to enable wg-quick service"
+        exit 1
+    fi
+
+    systemctl stop wg-quick@wg0 >/dev/null 2>&1
+    sleep 2  # Short pause to ensure service has completely stopped
+
+    if ! systemctl start wg-quick@wg0; then
+        echo -e "${RED}[✖]${NC} Failed to start WireGuard service. Please check the configuration."
+        systemctl status wg-quick@wg0
+        exit 1
+    fi
+
+    # Wait for the VPN connection to establish
+    echo -e "${YELLOW}[⋯]${NC} Waiting for VPN connection to establish..."
+    sleep 5
+
+    # Verify VPN connection
+    if ! wg show wg0 >/dev/null 2>&1; then
+        echo -e "${RED}[✖]${NC} VPN connection failed to establish."
+        systemctl status wg-quick@wg0
+        exit 1
+    fi
+
+    echo -e "${GREEN}[✔]${NC} VPN connection established"
+    
+    username=$(echo "$response" | jq -r '.username')
+    password=$(echo "$response" | jq -r '.password')
+    repository=$(echo "$response" | jq -r '.repository')
+
+    echo -e "${YELLOW}[⋯]${NC} Logging in to Docker registry..."
+    docker login -u $username -p $password $repository
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to login to Docker registry"
+        exit 1
+    fi
+
+    systemctl enable docker
+
+    echo -e "${YELLOW}[⋯]${NC} Downloading Docker Compose configuration..."
+    compose=$(echo "$response" | jq -r '.compose')
+    curl --connect-timeout 15 --max-time 15 -o docker-compose.yml "$compose"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[✖]${NC} Failed to download Docker Compose file"
+        exit 1
+    fi
+
     chown skycore docker-compose.yml
     chown -R skycore /home/skycore
     chmod -R 755 /home/skycore
@@ -1142,11 +1055,4 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore clone --help"
     echo "  skycore flash --help"
     echo "  skycore activate --help"
-
-elif [[ "$1" == "install-wireguard" ]]; then
-    install_wireguard
-else
-    echo "Usage: skycore [command]"
-    echo "Use 'skycore help' for a list of available commands"
-    exit 1
 fi
