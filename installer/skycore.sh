@@ -948,10 +948,12 @@ EOF
 
 # Install skycore to the system
 SCRIPT_PATH=$(readlink -f "$0")
-if [ ! -f "/usr/local/bin/skycore.sh" ]; then
-    sudo cp "$SCRIPT_PATH" /usr/local/bin/skycore.sh
-    sudo chmod +x /usr/local/bin/skycore.sh
-    sudo ln -sf /usr/local/bin/skycore.sh /usr/local/bin/skycore
+INSTALL_PATH="/usr/local/bin/skycore.sh"
+
+if [ "$SCRIPT_PATH" != "$INSTALL_PATH" ] && [ ! -f "$INSTALL_PATH" ]; then
+    sudo cp "$SCRIPT_PATH" "$INSTALL_PATH"
+    sudo chmod +x "$INSTALL_PATH"
+    sudo ln -sf "$INSTALL_PATH" "/usr/local/bin/skycore"
 fi
 
 # Function to start services listed in skycore.conf
