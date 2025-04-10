@@ -59,7 +59,13 @@ Activate your drone with the following command:
 
 .. code-block:: bash
 
-   sudo skycore activate <drone_token>
+   sudo skycore activate --token <drone_token>
+
+You can specify which services to run during activation:
+
+.. code-block:: bash
+
+   sudo skycore activate --token <drone_token> --services drone-mavros,mavproxy
 
 .. figure:: https://idrobots.com/wp-content/uploads/2024/12/image-1-1024x653.png
    :alt: Drone activation screen
