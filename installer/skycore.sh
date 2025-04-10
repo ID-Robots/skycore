@@ -496,7 +496,6 @@ extract_image() {
     fi
 
     echo -e "${YELLOW}[⋯]${NC} Extracting archive to temporary directory: $TMP_EXTRACT_DIR"
-    rm -rf "$TMP_EXTRACT_DIR"/*
     mkdir -p "$TMP_EXTRACT_DIR"
 
     tar -xzf "$ARCHIVE_FILE" -C "$TMP_EXTRACT_DIR"
