@@ -753,9 +753,13 @@ activate_drone() {
         install_wireguard
     fi
 
+    # Restart network connection
+    echo -e "${YELLOW}[⋯]${NC} Restarting network connection..."
+    systemctl restart NetworkManager.service || systemctl restart networking.service || true
+
     # Wait a bit before requesting the configuration file
     echo -e "${YELLOW}[⋯]${NC} Waiting for network stabilization..."
-    sleep 3
+    sleep 5
 
     # Now download VPN configuration after ensuring WireGuard is working
     echo -e "${YELLOW}[⋯]${NC} Downloading VPN configuration..."
