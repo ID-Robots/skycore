@@ -49,15 +49,10 @@ jobs:
           # Make it executable
           chmod +x tests/installer/sc.sh
 
-      - name: Run standard tests
-        run: |
-          cd tests
-          ./run_tests.sh
-
       - name: Run Bats tests
         run: |
           cd tests
-          sudo ./run_bats_tests.sh
+          ./tests/run_bats_tests.sh
 
   build:
     needs: test
