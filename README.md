@@ -19,7 +19,7 @@ For detailed documentation, visit: [SkyCore Documentation](https://id-robots.git
 SSH into your Jetson device and install SkyCore CLI:
 
 ```bash
-curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash sc.sh
+curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash sc.sh install
 ```
 
 ### Vehicle Registration
