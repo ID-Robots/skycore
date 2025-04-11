@@ -33,9 +33,15 @@ jobs:
           git clone https://github.com/bats-core/bats-assert.git tests/test_helper/bats-assert
           git clone https://github.com/bats-core/bats-file.git tests/test_helper/bats-file
 
-      - name: Run tests
+      - name: Run standard tests
         run: |
-          sudo ./installer/sc.sh test
+          cd tests
+          ./run_tests.sh
+
+      - name: Run Bats tests
+        run: |
+          cd tests
+          sudo ./run_bats_tests.sh
 
   build:
     needs: test
