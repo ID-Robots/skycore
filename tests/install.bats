@@ -8,8 +8,8 @@ setup() {
     # Create a temporary directory
     TEST_DIR=$(mktemp -d)
     
-    # Use absolute path to sc.sh
-    SKYCORE_PATH="/home/idr/Projects/skycore/installer/sc.sh"
+    # Use the current directory for sc.sh
+    SKYCORE_PATH="$(pwd)/installer/sc.sh"
     
     # Mock installation paths
     MOCK_SCRIPT_PATH="${TEST_DIR}/sc.sh"
@@ -20,8 +20,13 @@ setup() {
     mkdir -p "${TEST_DIR}/usr/local/bin"
     
     # Copy the actual skycore script to our mock location
-    cp "${SKYCORE_PATH}" "${MOCK_SCRIPT_PATH}" || echo "Failed to copy ${SKYCORE_PATH}"
-    chmod +x "${MOCK_SCRIPT_PATH}" || echo "Failed to chmod ${MOCK_SCRIPT_PATH}"
+    if [ -f "$SKYCORE_PATH" ]; then
+        cp "$SKYCORE_PATH" "$MOCK_SCRIPT_PATH"
+        chmod +x "$MOCK_SCRIPT_PATH"
+    else
+        echo "Error: Could not find sc.sh at $SKYCORE_PATH"
+        exit 1
+    fi
 }
 
 # Teardown function to clean up after tests
