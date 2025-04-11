@@ -1,0 +1,52 @@
+name: Test Installer
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats partclone util-linux gawk coreutils parted e2fsprogs xz-utils
+          python -m pip install --upgrade pip
+
+      - name: Install Bats test helpers
+        run: |
+          # Create test helper directory
+          mkdir -p tests/test_helper
+          # Clone test helpers directly
+          git clone https://github.com/bats-core/bats-support.git tests/test_helper/bats-support
+          git clone https://github.com/bats-core/bats-assert.git tests/test_helper/bats-assert
+          git clone https://github.com/bats-core/bats-file.git tests/test_helper/bats-file
+          # Remove .git directories to prevent submodule issues
+          rm -rf tests/test_helper/*/.git
+
+      - name: Prepare test environment
+        run: |
+          # Create the installer directory in tests if it doesn't exist
+          mkdir -p tests/installer
+          # Copy sc.sh to the expected location
+          cp installer/sc.sh tests/installer/
+          # Make it executable
+          chmod +x tests/installer/sc.sh
+
+      - name: Run Bats tests
+        run: |
+          cd tests
+          sudo ./run_bats_tests.sh
