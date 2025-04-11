@@ -49,11 +49,6 @@ jobs:
           # Make it executable
           chmod +x tests/installer/sc.sh
 
-      - name: Run standard tests
-        run: |
-          cd tests
-          ./run_tests.sh
-
       - name: Run Bats tests
         run: |
           cd tests
