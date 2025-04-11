@@ -1049,42 +1049,6 @@ elif [[ "$1" == "down" ]]; then
     # Stop all services
     skycore_down
 
-elif [[ "$1" == "test" ]]; then
-    # Run the test suite
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    TEST_RUNNER="${SCRIPT_DIR}/../tests/run_tests.sh"
-    BATS_RUNNER="${SCRIPT_DIR}/../tests/run_bats_tests.sh"
-    
-    # Track the overall test status
-    TEST_STATUS=0
-    
-    # Run the standard tests
-    if [ -x "$TEST_RUNNER" ]; then
-        echo -e "${YELLOW}[⋯]${NC} Running skycore standard test suite..."
-        "$TEST_RUNNER"
-        STANDARD_STATUS=$?
-        if [ $STANDARD_STATUS -ne 0 ]; then
-            TEST_STATUS=1
-        fi
-    else
-        echo -e "${YELLOW}[⋯]${NC} Standard test runner not found at $TEST_RUNNER (skipping)"
-    fi
-    
-    # Run Bats tests if available
-    if [ -x "$BATS_RUNNER" ]; then
-        echo -e "${YELLOW}[⋯]${NC} Running skycore Bats test suite..."
-        sudo "$BATS_RUNNER"
-        BATS_STATUS=$?
-        if [ $BATS_STATUS -ne 0 ]; then
-            TEST_STATUS=1
-        fi
-    else
-        echo -e "${YELLOW}[⋯]${NC} Bats test runner not found at $BATS_RUNNER (skipping)"
-    fi
-    
-    # Exit with the status
-    exit $TEST_STATUS
-
 elif [[ "$1" == "list" ]]; then
     # List available block devices
     list_block_devices
@@ -1105,7 +1069,6 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore down      - Stop all Docker services"
     echo "  skycore install   - Install skycore to the system"
     echo "  skycore install-wireguard  - Install WireGuard on the system"
-    echo "  skycore test      - Run the skycore test suite"
     echo "  skycore help      - Show this help message"
 
     echo ""
