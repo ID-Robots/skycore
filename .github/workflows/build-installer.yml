@@ -13,7 +13,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: false
+          submodules: "false"
+          set-safe-directory: "/github/workspace"
+
+      - name: Clean up submodule references
+        run: |
+          # Remove any .git directories in test helpers to prevent submodule issues
+          rm -rf tests/test_helper/*/.git || true
+          # Remove any submodule entries from git config
+          git config --local --unset-all submodule.tests/test_helper/bats-assert.url || true
+          git config --local --unset-all submodule.tests/test_helper/bats-support.url || true
+          git config --local --unset-all submodule.tests/test_helper/bats-file.url || true
+          # Check for .gitmodules file and remove it if it exists
+          if [ -f .gitmodules ]; then
+            rm .gitmodules
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v4
