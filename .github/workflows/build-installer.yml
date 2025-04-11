@@ -33,6 +33,15 @@ jobs:
           git clone https://github.com/bats-core/bats-assert.git tests/test_helper/bats-assert
           git clone https://github.com/bats-core/bats-file.git tests/test_helper/bats-file
 
+      - name: Prepare test environment
+        run: |
+          # Create the installer directory in tests if it doesn't exist
+          mkdir -p tests/installer
+          # Copy sc.sh to the expected location
+          cp installer/sc.sh tests/installer/
+          # Make it executable
+          chmod +x tests/installer/sc.sh
+
       - name: Run standard tests
         run: |
           cd tests
