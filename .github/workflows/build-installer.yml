@@ -52,7 +52,7 @@ jobs:
       - name: Run Bats tests
         run: |
           cd tests
-          ./run_bats_tests.sh
+          sudo ./run_bats_tests.sh
 
   build:
     needs: test
