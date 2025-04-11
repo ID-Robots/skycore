@@ -26,6 +26,13 @@ jobs:
           sudo apt-get install -y bats partclone util-linux gawk coreutils parted e2fsprogs xz-utils
           python -m pip install --upgrade pip
 
+      - name: Install Bats test helpers
+        run: |
+          mkdir -p tests/test_helper
+          git clone https://github.com/bats-core/bats-support.git tests/test_helper/bats-support
+          git clone https://github.com/bats-core/bats-assert.git tests/test_helper/bats-assert
+          git clone https://github.com/bats-core/bats-file.git tests/test_helper/bats-file
+
       - name: Run tests
         run: |
           sudo ./installer/sc.sh test
