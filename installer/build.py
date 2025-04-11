@@ -18,7 +18,7 @@ def create_tar_gz(archive_name, files):
 def main():
     
     # Define the files to be compressed
-    files_to_compress = ['skycore.sh', 'skycore_cli.py']
+    files_to_compress = ['sc.sh', 'skycore_cli.py']
     
     # Define the name of the archive
     archive_name = 'skycore.tar.gz'
