@@ -19,7 +19,18 @@ SSH into your Jetson device and install SkyCore CLI:
 
 .. code-block:: bash
 
-   curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash sc.sh
+   curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash sc.sh install
+
+This command will:
+
+1. Download the SkyCore package
+2. Extract it to the current directory
+3. Install SkyCore to your system by:
+   - Copying the script to ``/usr/local/bin/sc.sh``
+   - Creating a symlink at ``/usr/local/bin/skycore``
+   - Setting proper permissions
+
+After installation, you can use either ``sc.sh`` or ``skycore`` commands.
 
 Drive Flashing
 --------------

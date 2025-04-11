@@ -28,10 +28,14 @@ jobs:
 
       - name: Install Bats test helpers
         run: |
+          # Create test helper directory
           mkdir -p tests/test_helper
+          # Clone test helpers directly
           git clone https://github.com/bats-core/bats-support.git tests/test_helper/bats-support
           git clone https://github.com/bats-core/bats-assert.git tests/test_helper/bats-assert
           git clone https://github.com/bats-core/bats-file.git tests/test_helper/bats-file
+          # Remove .git directories to prevent submodule issues
+          rm -rf tests/test_helper/*/.git
 
       - name: Prepare test environment
         run: |
