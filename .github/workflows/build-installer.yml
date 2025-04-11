@@ -10,13 +10,14 @@ on:
 
 jobs:
   test:
+    if: github.event_name == 'pull_request' # Only run tests on PRs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history for all branches and tags
-          submodules: false # Don't fetch submodules
+          fetch-depth: 0
+          submodules: false
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -57,13 +58,12 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history for all branches and tags
-          submodules: false # Don't fetch submodules
+          fetch-depth: 0
+          submodules: false
 
       - name: Set up Python
         uses: actions/setup-python@v4
