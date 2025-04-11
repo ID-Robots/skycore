@@ -13,11 +13,25 @@ jobs:
     if: github.event_name == 'pull_request' # Only run tests on PRs
     runs-on: ubuntu-latest
     steps:
+      - name: Pre-Checkout Configure Git
+        run: |
+          git config --global advice.detachedHead false
+          git config --global submodule.recurse false
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: false
+
+      - name: Clean up any submodule references
+        run: |
+          if [ -f .gitmodules ]; then
+            rm -f .gitmodules
+          fi
+          if [ -d .git/modules ]; then
+            rm -rf .git/modules
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -59,11 +73,25 @@ jobs:
     if: github.ref == 'refs/heads/main' # Only run build on main branch
     runs-on: ubuntu-latest
     steps:
+      - name: Pre-Checkout Configure Git
+        run: |
+          git config --global advice.detachedHead false
+          git config --global submodule.recurse false
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: false
+
+      - name: Clean up any submodule references
+        run: |
+          if [ -f .gitmodules ]; then
+            rm -f .gitmodules
+          fi
+          if [ -d .git/modules ]; then
+            rm -rf .git/modules
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v4
