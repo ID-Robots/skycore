@@ -19,7 +19,7 @@ SSH into your Jetson device and install SkyCore CLI:
 
 .. code-block:: bash
 
-   curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash skycore.sh
+   curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash sc.sh
 
 Drive Flashing
 --------------

@@ -19,7 +19,7 @@ For detailed documentation, visit: [SkyCore Documentation](https://id-robots.git
 SSH into your Jetson device and install SkyCore CLI:
 
 ```bash
-curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash skycore.sh
+curl -sL https://skyhub.ai/sc.tar.gz | tar xz && sudo bash sc.sh
 ```
 
 ### Vehicle Registration
@@ -171,6 +171,44 @@ xdg-open build/html/index.html
 
 If you encounter any issues or have questions, join our Discord community:
 [Discord Support](https://discord.com/invite/aDJJ8GqqQc)
+
+## Testing
+
+SkyCore includes a comprehensive test suite to ensure reliability and stability. The tests cover various components including installation, drive cloning, flashing, and drone activation.
+
+### Running Tests
+
+To run the entire test suite:
+
+```bash
+sudo ./installer/sc.sh test
+```
+
+This command executes:
+
+1. Standard unit tests for core functionality
+2. Bats tests (Bash Automated Testing System) for command-line operations
+
+### Test Categories
+
+The test suite includes tests for:
+
+- **Installation**: Verifies proper installation and symlink creation
+- **Clone Drive**: Tests drive cloning functionality and options
+- **Flash Drive**: Validates proper drive flashing and partition restoration
+- **Activate Drone**: Tests drone activation process and service management
+- **Banner**: Ensures the banner displays correctly
+- **Root Check**: Validates root permission requirements
+
+### Test Results
+
+Test results display each test category with pass/fail status:
+
+- ✓ - Passed test
+- ✗ - Failed test
+- - - Skipped test (with explanation)
+
+Failed tests include detailed error information to help identify the issue.
 
 ## License
 

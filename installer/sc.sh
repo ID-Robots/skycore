@@ -251,34 +251,68 @@ clone_drive() {
         case $fs_type in
         ext4)
             PARTCLONE_CMD="partclone.ext4"
+            if ! command -v partclone.ext4 &>/dev/null; then
+                echo -e "${YELLOW}[⋯]${NC} partclone.ext4 not found, falling back to partclone.dd"
+                PARTCLONE_CMD="partclone.dd"
+            fi
             ;;
         vfat | fat32 | fat16)
             PARTCLONE_CMD="partclone.vfat"
+            if ! command -v partclone.vfat &>/dev/null; then
+                echo -e "${YELLOW}[⋯]${NC} partclone.vfat not found, falling back to partclone.dd"
+                PARTCLONE_CMD="partclone.dd"
+            fi
             ;;
         ntfs)
             PARTCLONE_CMD="partclone.ntfs"
+            if ! command -v partclone.ntfs &>/dev/null; then
+                echo -e "${YELLOW}[⋯]${NC} partclone.ntfs not found, falling back to partclone.dd"
+                PARTCLONE_CMD="partclone.dd"
+            fi
             ;;
         xfs)
             PARTCLONE_CMD="partclone.xfs"
+            if ! command -v partclone.xfs &>/dev/null; then
+                echo -e "${YELLOW}[⋯]${NC} partclone.xfs not found, falling back to partclone.dd"
+                PARTCLONE_CMD="partclone.dd"
+            fi
             ;;
         *)
             PARTCLONE_CMD="partclone.dd"
             ;;
         esac
 
+        # Verify partclone.dd is actually available
+        if ! command -v "$PARTCLONE_CMD" &>/dev/null; then
+            echo -e "${RED}[✖]${NC} Error: $PARTCLONE_CMD not found. Please install partclone."
+            exit 1
+        fi
+
         img_file="$OUTPUT_DIR/jetson_nvme_p${part_num}.img"
 
         if [ "$COMPRESS" = true ]; then
             echo -e "${YELLOW}[⋯]${NC} Using compression for $part"
             if command -v lz4 &>/dev/null; then
-                $PARTCLONE_CMD -c -s "$part" | lz4 >"${img_file}.lz4"
+                echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -s $part > ${img_file}.lz4"
+                if ! $PARTCLONE_CMD -s "$part" | lz4 >"${img_file}.lz4"; then
+                    echo -e "${RED}[✖]${NC} Failed to clone $part with $PARTCLONE_CMD"
+                    exit 1
+                fi
                 echo -e "${GREEN}[✔]${NC} Partition $part cloned to ${img_file}.lz4"
             else
-                $PARTCLONE_CMD -c -s "$part" | gzip >"${img_file}.gz"
+                echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -s $part > ${img_file}.gz"
+                if ! $PARTCLONE_CMD -s "$part" | gzip >"${img_file}.gz"; then
+                    echo -e "${RED}[✖]${NC} Failed to clone $part with $PARTCLONE_CMD"
+                    exit 1
+                fi
                 echo -e "${GREEN}[✔]${NC} Partition $part cloned to ${img_file}.gz"
             fi
         else
-            $PARTCLONE_CMD -c -s "$part" -o "$img_file"
+            echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -s $part -o $img_file"
+            if ! $PARTCLONE_CMD -s "$part" -o "$img_file"; then
+                echo -e "${RED}[✖]${NC} Failed to clone $part with $PARTCLONE_CMD"
+                exit 1
+            fi
             echo -e "${GREEN}[✔]${NC} Partition $part cloned to $img_file"
         fi
     done
@@ -903,13 +937,32 @@ EOF
 
 # Install skycore to the system
 SCRIPT_PATH=$(readlink -f "$0")
-INSTALL_PATH="/usr/local/bin/skycore.sh"
+INSTALL_PATH="/usr/local/bin/sc.sh"
 
-if [ "$SCRIPT_PATH" != "$INSTALL_PATH" ] && [ ! -f "$INSTALL_PATH" ]; then
+# Function to install skycore to the system
+install_skycore() {
+    echo -e "${YELLOW}[⋯]${NC} Installing skycore to $INSTALL_PATH..."
+    
+    if [ "$SCRIPT_PATH" == "$INSTALL_PATH" ]; then
+        echo -e "${GREEN}[✔]${NC} skycore is already installed at $INSTALL_PATH"
+        return
+    fi
+    
+    # Create the directory if it doesn't exist
+    INSTALL_DIR=$(dirname "$INSTALL_PATH")
+    sudo mkdir -p "$INSTALL_DIR"
+    
     sudo cp "$SCRIPT_PATH" "$INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
-    sudo ln -sf "$INSTALL_PATH" "/usr/local/bin/skycore"
-fi
+    
+    # Create symlink in the same directory using direct path
+    SYMLINK_PATH="${INSTALL_DIR}/skycore"
+    # Use a direct target without any path transformation
+    sudo ln -sf "$INSTALL_PATH" "$SYMLINK_PATH"
+    
+    echo -e "${GREEN}[✔]${NC} skycore installed successfully at $INSTALL_PATH"
+    echo -e "${GREEN}[✔]${NC} Created symlink at $SYMLINK_PATH"
+}
 
 # Function to start services listed in skycore.conf
 skycore_up() {
@@ -979,6 +1032,10 @@ elif [[ "$1" == "flash" ]]; then
     shift
     flash_drive "$@"
 
+elif [[ "$1" == "install" ]]; then
+    # Install skycore to the system
+    install_skycore
+
 elif [[ "$1" == "activate" ]]; then
     # Shift to remove the "activate" argument
     shift
@@ -992,11 +1049,52 @@ elif [[ "$1" == "down" ]]; then
     # Stop all services
     skycore_down
 
+elif [[ "$1" == "test" ]]; then
+    # Run the test suite
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    TEST_RUNNER="${SCRIPT_DIR}/../tests/run_tests.sh"
+    BATS_RUNNER="${SCRIPT_DIR}/../tests/run_bats_tests.sh"
+    
+    # Track the overall test status
+    TEST_STATUS=0
+    
+    # Run the standard tests
+    if [ -x "$TEST_RUNNER" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Running skycore standard test suite..."
+        "$TEST_RUNNER"
+        STANDARD_STATUS=$?
+        if [ $STANDARD_STATUS -ne 0 ]; then
+            TEST_STATUS=1
+        fi
+    else
+        echo -e "${YELLOW}[⋯]${NC} Standard test runner not found at $TEST_RUNNER (skipping)"
+    fi
+    
+    # Run Bats tests if available
+    if [ -x "$BATS_RUNNER" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Running skycore Bats test suite..."
+        sudo "$BATS_RUNNER"
+        BATS_STATUS=$?
+        if [ $BATS_STATUS -ne 0 ]; then
+            TEST_STATUS=1
+        fi
+    else
+        echo -e "${YELLOW}[⋯]${NC} Bats test runner not found at $BATS_RUNNER (skipping)"
+    fi
+    
+    # Exit with the status
+    exit $TEST_STATUS
+
+elif [[ "$1" == "list" ]]; then
+    # List available block devices
+    list_block_devices
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
     echo "  skycore clone     - Clone a device to image files"
     echo "  skycore flash     - Flash image files to a device"
+    echo "  skycore list      - List available block devices"
     echo "  skycore activate  - Activate a drone with a token"
     echo "    Options:"
     echo "      --token, -t <token>     - Specify the activation token"
@@ -1005,7 +1103,9 @@ elif [[ "$1" == "help" ]]; then
     echo "                              (available: drone-mavros,camera-proxy,mavproxy,ws_proxy)"
     echo "  skycore up        - Start services listed in skycore.conf"
     echo "  skycore down      - Stop all Docker services"
+    echo "  skycore install   - Install skycore to the system"
     echo "  skycore install-wireguard  - Install WireGuard on the system"
+    echo "  skycore test      - Run the skycore test suite"
     echo "  skycore help      - Show this help message"
 
     echo ""
