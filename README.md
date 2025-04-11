@@ -178,37 +178,11 @@ SkyCore includes a comprehensive test suite to ensure reliability and stability.
 
 ### Running Tests
 
-To run the entire test suite:
+To run all tests:
 
 ```bash
-sudo ./installer/sc.sh test
+sudo ./tests/run_bats_tests.sh  # Run bats tests
 ```
-
-This command executes:
-
-1. Standard unit tests for core functionality
-2. Bats tests (Bash Automated Testing System) for command-line operations
-
-### Test Categories
-
-The test suite includes tests for:
-
-- **Installation**: Verifies proper installation and symlink creation
-- **Clone Drive**: Tests drive cloning functionality and options
-- **Flash Drive**: Validates proper drive flashing and partition restoration
-- **Activate Drone**: Tests drone activation process and service management
-- **Banner**: Ensures the banner displays correctly
-- **Root Check**: Validates root permission requirements
-
-### Test Results
-
-Test results display each test category with pass/fail status:
-
-- ✓ - Passed test
-- ✗ - Failed test
-- - - Skipped test (with explanation)
-
-Failed tests include detailed error information to help identify the issue.
 
 ## License
 
