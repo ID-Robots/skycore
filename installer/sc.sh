@@ -293,15 +293,15 @@ clone_drive() {
         if [ "$COMPRESS" = true ]; then
             echo -e "${YELLOW}[⋯]${NC} Using compression for $part"
             if command -v lz4 &>/dev/null; then
-                echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -s $part > ${img_file}.lz4"
-                if ! $PARTCLONE_CMD -s "$part" | lz4 >"${img_file}.lz4"; then
+                echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -c -s $part | lz4 > ${img_file}.lz4"
+                if ! $PARTCLONE_CMD -c -s "$part" | lz4 >"${img_file}.lz4"; then
                     echo -e "${RED}[✖]${NC} Failed to clone $part with $PARTCLONE_CMD"
                     exit 1
                 fi
                 echo -e "${GREEN}[✔]${NC} Partition $part cloned to ${img_file}.lz4"
             else
-                echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -s $part > ${img_file}.gz"
-                if ! $PARTCLONE_CMD -s "$part" | gzip >"${img_file}.gz"; then
+                echo -e "${YELLOW}[⋯]${NC} Running: $PARTCLONE_CMD -c -s $part | gzip > ${img_file}.gz"
+                if ! $PARTCLONE_CMD -c -s "$part" | gzip >"${img_file}.gz"; then
                     echo -e "${RED}[✖]${NC} Failed to clone $part with $PARTCLONE_CMD"
                     exit 1
                 fi
@@ -365,6 +365,7 @@ flash_drive() {
     TMP_EXTRACT_DIR="${TMP_DIR}/extracted"
     INPUT_DIR=""
     FROM_S3=true
+    IMAGE_SELECTED=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -378,6 +379,7 @@ flash_drive() {
             ;;
         --image | -i)
             IMAGE_NAME="$2"
+            IMAGE_SELECTED=true
             shift 2
             ;;
         --archive | -a)
@@ -394,7 +396,7 @@ flash_drive() {
             echo "Usage: skycore flash --target TARGET_DEVICE [options]"
             echo "  --target, -t: Target device (e.g., /dev/nvme1n1 or /dev/sdb)"
             echo "  --bucket, -b: S3 bucket URL (default: ${S3_BUCKET})"
-            echo "  --image, -i: Image name to download from S3 (default: ${IMAGE_NAME})"
+            echo "  --image, -i: Image name to download from S3 (default: selection menu)"
             echo "  --archive, -a: Use local archive file instead of downloading from S3"
             echo "  --input, -d: Use local directory with partition images instead of archive"
             echo ""
@@ -412,6 +414,30 @@ flash_drive() {
             ;;
         esac
     done
+
+    # If no image was selected and we're using S3, show the selection menu
+    if [ "$FROM_S3" = true ] && [ "$IMAGE_SELECTED" = false ]; then
+        echo -e "${YELLOW}[⋯]${NC} Please select an image to flash:"
+        echo "1) Jetson Orion Nano 8GB - Jetpack 6.2"
+        echo "2) Legacy Jetson Nano 4GB - Jetpack 4.6"
+        echo -n "Enter selection number: "
+        read selection
+        
+        case $selection in
+            1)
+                IMAGE_NAME="orion-nano-8gb-jp6.2.tar.gz"
+                echo -e "${GREEN}[✔]${NC} Selected: Jetson Orion Nano 8GB - Jetpack 6.2"
+                ;;
+            2)
+                IMAGE_NAME="jetson-nano-sd-4gb-jp4.6.tar.gz"
+                echo -e "${GREEN}[✔]${NC} Selected: Legacy Jetson Nano 4GB - Jetpack 4.6"
+                ;;
+            *)
+                echo -e "${RED}[✖]${NC} Invalid selection. Exiting."
+                exit 1
+                ;;
+        esac
+    fi
 
     if [ -z "$TARGET_DEVICE" ]; then
         echo -e "${RED}[✖]${NC} No target device specified. Use --target to specify the device."
