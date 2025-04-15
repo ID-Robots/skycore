@@ -1,7 +1,7 @@
 Getting Started
 ===============
 
-Welcome to SkyCore! This guide will help you install and get started with SkyCore.
+Welcome to SkyHub - This guide will help you install and get started.
 
 SkyHub Registration
 -------------------
