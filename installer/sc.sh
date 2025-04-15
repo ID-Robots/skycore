@@ -1044,6 +1044,66 @@ skycore_down() {
     echo -e "${GREEN}[✔]${NC} All services stopped successfully"
 }
 
+# Function to handle utility commands
+utils_command() {
+    local subcommand="$1"
+
+    case "$subcommand" in
+        boot_mmc)
+            boot_mmc
+            ;;
+        boot_nvme)
+            boot_nvme
+            ;;
+        *)
+            echo -e "${RED}[✖]${NC} Unknown utility command: $subcommand"
+            echo "Available utility commands:"
+            echo "  boot_mmc  - Update extlinux.conf to boot from SD card"
+            echo "  boot_nvme - Update extlinux.conf to boot from NVMe drive"
+            ;;
+    esac
+}
+
+# Function to configure system to boot from SD card
+boot_mmc() {
+    echo -e "${YELLOW}[⋯]${NC} Configuring system to boot from SD card..."
+    
+    # 1. Create and mount /mnt/mmc
+    sudo mkdir -p /mnt/mmc
+    if ! sudo mount -t ext4 /dev/mmcblk0p1 /mnt/mmc; then
+        echo -e "${RED}[✖]${NC} Failed to mount /dev/mmcblk0p1. Is the SD card inserted properly?"
+        return 1
+    fi
+
+    # 2. Path to extlinux.conf on the mounted partition
+    EXTLINUX_CFG="/mnt/mmc/boot/extlinux/extlinux.conf"
+
+    if [ -f "$EXTLINUX_CFG" ]; then
+        sudo sed -i 's|root=/dev/nvme0n1p1|root=/dev/mmcblk0p1|g' "$EXTLINUX_CFG"
+        echo -e "${GREEN}[✔]${NC} Updated $EXTLINUX_CFG to use /dev/mmcblk0p1 as the root device."
+        sudo umount /mnt/mmc
+        echo -e "${GREEN}[✔]${NC} The system will now boot from SD card on next reboot."
+    else
+        echo -e "${RED}[✖]${NC} extlinux.conf not found in $EXTLINUX_CFG!"
+        sudo umount /mnt/mmc
+        return 1
+    fi
+}
+
+# Function to configure system to boot from NVMe drive
+boot_nvme() {
+    echo -e "${YELLOW}[⋯]${NC} Configuring system to boot from NVMe drive..."
+    
+    if [ -f /boot/extlinux/extlinux.conf ]; then
+        sudo sed -i 's|root=/dev/mmcblk0p1|root=/dev/nvme0n1p1|g' /boot/extlinux/extlinux.conf
+        echo -e "${GREEN}[✔]${NC} Updated root device to /dev/nvme0n1p1 in /boot/extlinux/extlinux.conf."
+        echo -e "${GREEN}[✔]${NC} The system will now boot from NVMe drive on next reboot."
+    else
+        echo -e "${RED}[✖]${NC} Error: extlinux.conf not found in /boot/extlinux/"
+        return 1
+    fi
+}
+
 if [[ "$1" == "cli" ]]; then
     echo "Starting SkyCore CLI..."
     python3 "skycore_cli.py"
@@ -1079,6 +1139,11 @@ elif [[ "$1" == "list" ]]; then
     # List available block devices
     list_block_devices
 
+elif [[ "$1" == "utils" ]]; then
+    # Shift to remove the "utils" argument
+    shift
+    utils_command "$@"
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
@@ -1094,6 +1159,10 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore up        - Start services listed in skycore.conf"
     echo "  skycore down      - Stop all Docker services"
     echo "  skycore install   - Install skycore to the system"
+    echo "  skycore utils     - Run utility commands"
+    echo "    Available utilities:"
+    echo "      boot_mmc      - Configure system to boot from SD card"
+    echo "      boot_nvme     - Configure system to boot from NVMe drive"
     echo "  skycore install-wireguard  - Install WireGuard on the system"
     echo "  skycore help      - Show this help message"
 
