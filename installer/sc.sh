@@ -507,7 +507,7 @@ list_block_devices() {
 install_dependencies() {
     echo -e "${YELLOW}[⋯]${NC} Checking for required dependencies..."
     apt-get update -y
-    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone
+    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq
 
     if [ "$FROM_S3" = true ]; then
         echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
