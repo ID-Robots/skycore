@@ -31,7 +31,7 @@ install_wireguard() {
     echo -e "${YELLOW}[⋯]${NC} Installing WireGuard..."
 
     apt-get update -y
-    apt-get install -y wireguard wireguard-tools git curl
+    apt-get install -y wireguard wireguard-tools
 
     if modprobe wireguard 2>/dev/null; then
         echo -e "${GREEN}[✔]${NC} WireGuard kernel module is available."
@@ -503,25 +503,6 @@ list_block_devices() {
     lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
 }
 
-install_dependencies() {
-    echo -e "${YELLOW}[⋯]${NC} Checking for required dependencies..."
-    apt-get update -y
-    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq
-
-    if [ "$FROM_S3" = true ]; then
-        echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
-        if ! command -v aws >/dev/null 2>&1; then
-            echo -e "${YELLOW}[⋯]${NC} AWS CLI not found. Installing AWS CLI via pip..."
-            pip3 install awscli || {
-                echo -e "${RED}[✖]${NC} Failed to install AWS CLI."
-                exit 1
-            }
-        else
-            echo -e "${GREEN}[✔]${NC} AWS CLI is already installed."
-        fi
-    fi
-}
-
 download_image() {
     if [ "$FROM_S3" = true ]; then
         if [ -f "$ARCHIVE_FILE" ]; then
@@ -976,8 +957,21 @@ install_skycore() {
     # Install dependencies
     echo -e "${YELLOW}[⋯]${NC} Installing required dependencies..."
     apt-get update -y
-    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq
-    
+    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq libxml2-dev libxslt1-dev python3-dev git
+
+    if [ "$FROM_S3" = true ]; then
+        echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
+        if ! command -v aws >/dev/null 2>&1; then
+            echo -e "${YELLOW}[⋯]${NC} AWS CLI not found. Installing AWS CLI via pip..."
+            pip3 install awscli || {
+                echo -e "${RED}[✖]${NC} Failed to install AWS CLI."
+                exit 1
+            }
+        else
+            echo -e "${GREEN}[✔]${NC} AWS CLI is already installed."
+        fi
+    fi
+
     # Create the directory if it doesn't exist
     INSTALL_DIR=$(dirname "$INSTALL_PATH")
     sudo mkdir -p "$INSTALL_DIR"
