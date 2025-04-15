@@ -75,18 +75,21 @@ teardown() {
 }
 
 @test "flash_drive should fail without target device" {
-    run sudo ./installer/sc.sh flash
+    # Supply "1" to pass the image selection prompt before failing due to missing target
+    run bash -c "echo 1 | sudo ./installer/sc.sh flash"
     assert_failure
     assert_output --partial "No target device specified"
 }
 
 @test "flash_drive should fail with non-existent target device" {
-    run sudo ./installer/sc.sh flash --target /dev/nonexistent
+    # Include a specific image to avoid the selection menu
+    run sudo ./installer/sc.sh flash --target /dev/nonexistent --image test-image.tar.gz
     assert_failure
     assert_output --partial "does not exist or is not a block device"
 }
 
 @test "flash_drive should fail with non-existent input directory" {
+    # Include a specific image to avoid the selection menu
     run sudo ./installer/sc.sh flash --target "$TARGET_LOOP" --input /nonexistent/dir
     assert_failure
     assert_output --partial "Input directory /nonexistent/dir does not exist"
@@ -611,4 +614,20 @@ EOF
     
     # Just check if directory was removed - don't try to remove it yourself
     [ ! -d "$TMP_EXTRACT_DIR" ]
+}
+
+@test "flash_drive should handle image selection menu correctly" {
+    # Provide invalid selection to verify error message
+    run bash -c "echo 3 | sudo ./installer/sc.sh flash"
+    assert_failure
+    assert_output --partial "Please select an image to flash:"
+    assert_output --partial "1) Jetson Orion Nano 8GB - Jetpack 6.2"
+    assert_output --partial "2) Legacy Jetson Nano 4GB - Jetpack 4.6"
+    assert_output --partial "Invalid selection. Exiting."
+    
+    # Provide valid selection to verify it is accepted
+    # This should still fail but because of missing target
+    run bash -c "echo 2 | sudo ./installer/sc.sh flash"
+    assert_failure
+    assert_output --partial "No target device specified"
 } 
