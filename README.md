@@ -186,4 +186,4 @@ sudo ./tests/run_bats_tests.sh  # Run bats tests
 
 ## License
 
-© Copyright 2025, ID Robots
+© Copyright 2025, ID Robots https://idrobots.com/
