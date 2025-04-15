@@ -484,7 +484,6 @@ flash_drive() {
     echo -e "${YELLOW}[⋯]${NC} SKYCORE Flash tool starting..."
 
     list_block_devices
-    install_dependencies
     download_image
     extract_image
     check_mounted_partitions
@@ -973,6 +972,11 @@ install_skycore() {
         echo -e "${GREEN}[✔]${NC} skycore is already installed at $INSTALL_PATH"
         return
     fi
+    
+    # Install dependencies
+    echo -e "${YELLOW}[⋯]${NC} Installing required dependencies..."
+    apt-get update -y
+    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq
     
     # Create the directory if it doesn't exist
     INSTALL_DIR=$(dirname "$INSTALL_PATH")
