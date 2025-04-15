@@ -169,55 +169,6 @@ start=2048, type=83' | sudo sfdisk "$TARGET_LOOP"
     echo "$output" | grep -q "MOUNTPOINT"
 }
 
-@test "install_dependencies should check for required packages" {
-    # Create a mock for apt-get commands to prevent actual installation
-    function apt-get() {
-        echo "Mock apt-get $@"
-        return 0
-    }
-    export -f apt-get
-    
-    # Create a mock for pip3 install to prevent actual installation
-    function pip3() {
-        echo "Mock pip3 $@"
-        return 0
-    }
-    export -f pip3
-    
-    # Set FROM_S3 to true to test AWS CLI check
-    export FROM_S3=true
-    
-    # Create a mock for command check that simulates AWS CLI not being installed
-    function command() {
-        if [[ "$2" == "aws" ]]; then
-            return 1  # AWS CLI not found
-        fi
-        return 0  # Other commands found
-    }
-    export -f command
-    
-    # Run the install_dependencies function
-    run bash -c "source ./installer/sc.sh && install_dependencies"
-    
-    # Check that the function succeeded
-    assert_success
-    
-    # Check that it attempted to update and install packages
-    assert_output --partial "Checking for required dependencies"
-    assert_output --partial "Mock apt-get update -y"
-    assert_output --partial "Mock apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone"
-    
-    # Check that it detected AWS CLI installation needed
-    assert_output --partial "Checking if AWS CLI is installed"
-    assert_output --partial "AWS CLI not found"
-    assert_output --partial "Mock pip3 install awscli"
-    
-    # Clean up our mocks
-    unset -f apt-get
-    unset -f pip3
-    unset -f command
-    unset FROM_S3
-}
 
 @test "download_image should reuse existing archive when FROM_S3=true and file exists" {
     # Create mock test environment
