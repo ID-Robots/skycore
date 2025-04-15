@@ -1,5 +1,4 @@
 # Build artifacts
-build/
 
 # Python
 __pycache__/

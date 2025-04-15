@@ -1,0 +1,208 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Getting Started &mdash; SkyCore 0.0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=b0e4d6fd" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=d45e8c67"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Setup Gamepad Controller" href="gamepad_controller.html" />
+    <link rel="prev" title="SkyCore documentation" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search"  style="background: #0969da" >
+
+          
+          
+          <a href="index.html">
+            
+              <img src="_static/logo.svg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#skyhub-registration">SkyHub Registration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#drive-flashing">Drive Flashing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#vehicle-registration">Vehicle Registration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#drone-activation">Drone Activation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#important-notes">Important Notes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#support">Support</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="gamepad_controller.html">Setup Gamepad Controller</a></li>
+<li class="toctree-l1"><a class="reference internal" href="skycore_cli.html">SkyCore CLI Tool</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clone.html">Cloning Drives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="flash.html">Flashing Drives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="activate.html">Activate</a></li>
+<li class="toctree-l1"><a class="reference internal" href="service_management.html">Service Management</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu"  style="background: #0969da" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">SkyCore</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Getting Started</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/getting_started.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="getting-started">
+<h1>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading"></a></h1>
+<p>Welcome to SkyCore! This guide will help you install and get started with SkyCore.</p>
+<section id="skyhub-registration">
+<h2>SkyHub Registration<a class="headerlink" href="#skyhub-registration" title="Link to this heading"></a></h2>
+<p>Before you begin, you’ll need to create a SkyHub account:</p>
+<ol class="arabic simple">
+<li><p>Register for SkyHub at <a class="reference external" href="https://skyhub.ai/register">https://skyhub.ai/register</a></p></li>
+<li><p>Verify your email address</p></li>
+<li><p>Log in to access the SkyHub dashboard</p></li>
+</ol>
+</section>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
+<p>SSH into your Jetson device and install SkyCore CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sL<span class="w"> </span>https://skyhub.ai/sc.tar.gz<span class="w"> </span><span class="p">|</span><span class="w"> </span>tar<span class="w"> </span>xz<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>sudo<span class="w"> </span>bash<span class="w"> </span>sc.sh<span class="w"> </span>install
+</pre></div>
+</div>
+<p>This command will:</p>
+<ol class="arabic simple">
+<li><p>Download the SkyCore package</p></li>
+<li><p>Extract it to the current directory</p></li>
+<li><p>Install SkyCore to your system by:
+- Copying the script to <code class="docutils literal notranslate"><span class="pre">/usr/local/bin/sc.sh</span></code>
+- Creating a symlink at <code class="docutils literal notranslate"><span class="pre">/usr/local/bin/skycore</span></code>
+- Setting proper permissions</p></li>
+</ol>
+<p>After installation, you can use either <code class="docutils literal notranslate"><span class="pre">sc.sh</span></code> or <code class="docutils literal notranslate"><span class="pre">skycore</span></code> commands.</p>
+</section>
+<section id="drive-flashing">
+<h2>Drive Flashing<a class="headerlink" href="#drive-flashing" title="Link to this heading"></a></h2>
+<p>To download and flash a Jetson Orin image to a drive:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>skycore<span class="w"> </span>flash<span class="w"> </span>--target<span class="w"> </span>/dev/sdX
+</pre></div>
+</div>
+<p>Where <code class="docutils literal notranslate"><span class="pre">/dev/sdX</span></code> is your target drive (e.g., <code class="docutils literal notranslate"><span class="pre">/dev/sda</span></code> or <code class="docutils literal notranslate"><span class="pre">/dev/nvme0n1</span></code>).</p>
+<p>This command will:</p>
+<ol class="arabic simple">
+<li><p>Download the latest Orion Nano image from our S3 repository</p></li>
+<li><p>Flash the image to your target drive</p></li>
+<li><p>Create all required partitions with proper filesystem types</p></li>
+</ol>
+<p>You can customize the source and other options:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>skycore<span class="w"> </span>flash<span class="w"> </span>--target<span class="w"> </span>/dev/sdX<span class="w"> </span>--bucket<span class="w"> </span>s3://custom-bucket<span class="w"> </span>--image<span class="w"> </span>custom-image.tar.gz
+</pre></div>
+</div>
+<p>For more options and details, see the <a class="reference internal" href="flash.html"><span class="doc">Flashing Drives</span></a> documentation.</p>
+</section>
+<section id="vehicle-registration">
+<h2>Vehicle Registration<a class="headerlink" href="#vehicle-registration" title="Link to this heading"></a></h2>
+<p>Add a new vehicle to SkyHub by visiting:
+<a class="reference external" href="https://skyhub.ai/home?dialog=app-create-drone-dialog">https://skyhub.ai/home?dialog=app-create-drone-dialog</a></p>
+</section>
+<section id="drone-activation">
+<h2>Drone Activation<a class="headerlink" href="#drone-activation" title="Link to this heading"></a></h2>
+<p>Activate your drone with the following command:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>skycore<span class="w"> </span>activate<span class="w"> </span>--token<span class="w"> </span>&lt;drone_token&gt;
+</pre></div>
+</div>
+<p>You can specify which services to run during activation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>skycore<span class="w"> </span>activate<span class="w"> </span>--token<span class="w"> </span>&lt;drone_token&gt;<span class="w"> </span>--services<span class="w"> </span>drone-mavros,mavproxy
+</pre></div>
+</div>
+<figure class="align-default" id="id1">
+<a class="reference internal image-reference" href="https://idrobots.com/wp-content/uploads/2024/12/image-1-1024x653.png"><img alt="Drone activation screen" src="https://idrobots.com/wp-content/uploads/2024/12/image-1-1024x653.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Drone activation screen in SkyHub</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>For more details on activation options and troubleshooting, see the <a class="reference internal" href="activate.html"><span class="doc">Activate</span></a> documentation.</p>
+</section>
+<section id="important-notes">
+<h2>Important Notes<a class="headerlink" href="#important-notes" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Ensure you have a stable internet connection before running the commands.</p></li>
+<li><p>Run all commands with appropriate privileges (use <code class="docutils literal notranslate"><span class="pre">sudo</span></code> where required).</p></li>
+</ol>
+</section>
+<section id="support">
+<h2>Support<a class="headerlink" href="#support" title="Link to this heading"></a></h2>
+<p>If you encounter any issues or have questions, contact our support team:</p>
+<ul class="simple">
+<li><p><strong>Discord:</strong> <a class="reference external" href="https://discord.com/invite/aDJJ8GqqQc">https://discord.com/invite/aDJJ8GqqQc</a></p></li>
+</ul>
+<p>Happy inventing with SkyHub!</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="SkyCore documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gamepad_controller.html" class="btn btn-neutral float-right" title="Setup Gamepad Controller" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, ID Robots.</p>
+  </div>
+
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
