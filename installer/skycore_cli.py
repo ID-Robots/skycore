@@ -115,6 +115,8 @@ class MAVLinkConnection:
         Attempts to connect to a MAVLink device using common connection methods.
         """
         connection_methods = [
+            # Specific TELEM1 connection
+            'serial:/dev/ttyTHS1:23040',
             # Direct USB connections with common names
             '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB0', '/dev/ttyUSB1',
             # UDP connections for MAVROS and MAVProxy
