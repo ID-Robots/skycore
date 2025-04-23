@@ -1,0 +1,14 @@
+[Unit]
+Description=D435i depth camera obstacle avoidance
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStart=/bin/bash -c "python depth.py --connect udpout:127.0.0.1:14777"
+WorkingDirectory=/home/skycore/skycore/services/depth
+User=skycore
+
+[Install]
+WantedBy=multi-user.target
