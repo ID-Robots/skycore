@@ -6,7 +6,8 @@ After=network.target
 Type=simple
 Restart=always
 RestartSec=10
-ExecStart=/bin/bash -c "python depth.py --connect udpout:127.0.0.1:14777"
+ExecStartPre=/bin/sleep 10
+ExecStart=/bin/bash -c "python depth_multi_cam.py --connect udpout:127.0.0.1:14777 --front-serial 042222070533"
 WorkingDirectory=/home/skycore/skycore/services/depth
 User=skycore
 

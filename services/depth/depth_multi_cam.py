@@ -180,6 +180,17 @@ class ManagedCamera:
         devices = self.ctx.query_devices()
         logging.info(f"[{self.camera_name}] Searching for device among {len(devices)} found...")
         
+        # Log all available devices for debugging
+        for i, dev in enumerate(devices):
+            try:
+                if dev.supports(rs.camera_info.serial_number) and dev.supports(rs.camera_info.product_id):
+                    serial = dev.get_info(rs.camera_info.serial_number)
+                    product_id = dev.get_info(rs.camera_info.product_id)
+                    name = dev.get_info(rs.camera_info.name) if dev.supports(rs.camera_info.name) else "Unknown"
+                    logging.info(f"[{self.camera_name}] Available device {i}: Name={name}, Product ID={product_id}, Serial={serial}")
+            except Exception as e:
+                logging.error(f"[{self.camera_name}] Error querying device {i}: {e}")
+        
         # If a serial number was provided, search for that specific device
         if self.serial_number:
             for dev in devices:
@@ -898,6 +909,9 @@ class MavlinkIntegration:
                 time.sleep(0.005) # Shorter sleep as queue might fill faster
             except Exception as e:
                 logging.error(f"Error in send_obstacles loop: {e}")
+                logging.error(f"Error details: {traceback.format_exc()}")
+                # Log queue state for debugging
+                logging.error(f"Queue state: length={len(self.obstacle_queue)}, configured sensors={list(self.camera_params.keys())}")
                 time.sleep(0.01) # Prevent fast error loops
             
     def send_obstacle_distance_message(self, sensing_time, distances, sensor_type):
@@ -915,6 +929,11 @@ class MavlinkIntegration:
         self.last_obstacle_distance_sent_ms[sensor_type] = sensing_time
 
         try:
+            # Log the data we're sending for debugging multi-camera setup
+            if sensor_type == BACK_CAM_SENSOR_TYPE:  # Only log for back camera to reduce noise
+                min_dist = min([d for d in distances if d > 0], default=0)
+                logging.info(f"Sending obstacle data for sensor {sensor_type}: time={sensing_time}, min_dist={min_dist}cm")
+                
             self.conn.mav.obstacle_distance_send(
                 sensing_time,           # us Timestamp (UNIX time or time since system boot)
                 sensor_type,            # sensor_type, defined here: https://mavlink.io/en/messages/common.html#MAV_DISTANCE_SENSOR
@@ -928,6 +947,9 @@ class MavlinkIntegration:
             )
         except Exception as e:
             logging.error(f"Failed to send obstacle distance message for sensor {sensor_type}: {e}")
+            logging.error(f"Error details: {traceback.format_exc()}")
+            logging.error(f"Message params: min_depth={params['min_depth_cm']}, max_depth={params['max_depth_cm']}, " +
+                         f"increment={params['increment_f']}, angle_offset={params['angle_offset']}, frame={params['frame']}")
         
     def configure_sensor(self, sensor_type, min_depth_cm, max_depth_cm, angle_offset, increment_f, frame):
         """Configure parameters for a specific sensor_type."""
@@ -982,7 +1004,7 @@ class RealsenseService:
             self.depth_range_m = (0.1, 8.0)
             self.use_preset = self.settings.use_preset
             self.preset_file = "./cfg/d4xx-default.json"
-            self.obstacle_line_height_ratio = 0.18
+            self.obstacle_line_height_ratio = 0.60
             self.obstacle_line_thickness_pixel = 10
 
             # Create camera instances
