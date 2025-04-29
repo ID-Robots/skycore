@@ -15,7 +15,7 @@ os.environ["MAVLINK20"] = "1"
 from pymavlink import mavutil
 
 # Placeholder for Camera IDs and MAVLink Frames
-FRONT_CAM_SENSOR_TYPE = 0  # MAV_DISTANCE_SENSOR_LASER
+FRONT_CAM_SENSOR_TYPE = 0  # MAV_DISTANCE_SENSOR
 BACK_CAM_SENSOR_TYPE = 1   # Using a different ID for the back camera
 # Define MAVLink frames (assuming standard orientation)
 # Forward camera aligned with vehicle front
@@ -176,60 +176,86 @@ class ManagedCamera:
         Returns:
             True if a device was found, False otherwise
         """
-        self.ctx = rs.context()
-        devices = self.ctx.query_devices()
-        logging.info(f"[{self.camera_name}] Searching for device among {len(devices)} found...")
+        # Add retry mechanism for device enumeration
+        max_retries = 3
+        retry_count = 0
         
-        # Log all available devices for debugging
-        for i, dev in enumerate(devices):
+        while retry_count < max_retries:
             try:
-                if dev.supports(rs.camera_info.serial_number) and dev.supports(rs.camera_info.product_id):
-                    serial = dev.get_info(rs.camera_info.serial_number)
-                    product_id = dev.get_info(rs.camera_info.product_id)
-                    name = dev.get_info(rs.camera_info.name) if dev.supports(rs.camera_info.name) else "Unknown"
-                    logging.info(f"[{self.camera_name}] Available device {i}: Name={name}, Product ID={product_id}, Serial={serial}")
-            except Exception as e:
-                logging.error(f"[{self.camera_name}] Error querying device {i}: {e}")
-        
-        # If a serial number was provided, search for that specific device
-        if self.serial_number:
-            for dev in devices:
-                if dev.supports(rs.camera_info.serial_number) and dev.get_info(rs.camera_info.serial_number) == self.serial_number:
-                    product_id = str(dev.get_info(rs.camera_info.product_id))
-                    if dev.supports(rs.camera_info.product_id) and product_id in RealsenseService.DS5_product_ids:
-                        self.device = dev
-                        self.device_id = self.serial_number
-                        logging.info(f"[{self.camera_name}] Found device with serial {self.serial_number}")
-                        return True
+                self.ctx = rs.context()
+                devices = self.ctx.query_devices()
+                logging.info(f"[{self.camera_name}] Searching for device among {len(devices)} found...")
+                
+                # Log all available devices for debugging
+                device_list = []
+                try:
+                    for i, dev in enumerate(devices):
+                        try:
+                            if dev.supports(rs.camera_info.serial_number) and dev.supports(rs.camera_info.product_id):
+                                serial = dev.get_info(rs.camera_info.serial_number)
+                                product_id = dev.get_info(rs.camera_info.product_id)
+                                name = dev.get_info(rs.camera_info.name) if dev.supports(rs.camera_info.name) else "Unknown"
+                                logging.info(f"[{self.camera_name}] Available device {i}: Name={name}, Product ID={product_id}, Serial={serial}")
+                                device_list.append((i, dev, serial, product_id, name))
+                        except Exception as e:
+                            logging.error(f"[{self.camera_name}] Error querying device {i}: {e}")
+                except RuntimeError as e:
+                    if "failed to set power state" in str(e):
+                        logging.warning(f"[{self.camera_name}] Power state error during device enumeration. Retrying ({retry_count+1}/{max_retries})...")
+                        retry_count += 1
+                        time.sleep(3)  # Wait longer between retries
+                        continue
                     else:
-                        logging.warning(f"[{self.camera_name}] Found device with serial {self.serial_number}, but it doesn't support advanced mode or isn't a D4xx series.")
-                        return False
-            logging.error(f"[{self.camera_name}] Could not find device with serial {self.serial_number}")
-            return False
-        
-        # If no serial number was provided, find any compatible device not already in use
-        # We determine this by checking all in-use devices (needs to be tracked somewhere)
-        for i, dev in enumerate(devices):
-            try:
-                product_id = str(dev.get_info(rs.camera_info.product_id))
-                name = dev.get_info(rs.camera_info.name)
-                serial = dev.get_info(rs.camera_info.serial_number)
+                        raise  # Re-raise if it's a different RuntimeError
                 
-                # Skip devices that are already in use (this needs coordination)
-                # if serial in RealsenseService.active_camera_serials:
-                #     continue
+                # If a serial number was provided, search for that specific device
+                if self.serial_number:
+                    for _, dev, serial, product_id, _ in device_list:
+                        if serial == self.serial_number:
+                            if product_id in RealsenseService.DS5_product_ids:
+                                self.device = dev
+                                self.device_id = self.serial_number
+                                logging.info(f"[{self.camera_name}] Found device with serial {self.serial_number}")
+                                return True
+                            else:
+                                logging.warning(f"[{self.camera_name}] Found device with serial {self.serial_number}, but it doesn't support advanced mode or isn't a D4xx series.")
+                                return False
+                    logging.error(f"[{self.camera_name}] Could not find device with serial {self.serial_number}")
+                    return False
                 
-                logging.info(f"[{self.camera_name}] Checking Device {i}: Name={name}, Product ID={product_id}, Serial={serial}")
-                if dev.supports(rs.camera_info.product_id) and product_id in RealsenseService.DS5_product_ids:
-                    self.device = dev
-                    self.device_id = serial
-                    self.serial_number = serial  # Save for future reference
-                    logging.info(f"[{self.camera_name}] Using device {i}: Serial={serial}")
-                    return True
+                # If no serial number was provided, find any compatible device not already in use
+                for i, dev, serial, product_id, name in device_list:
+                    # Skip devices that are already in use
+                    if serial in RealsenseService.active_camera_serials:
+                        logging.info(f"[{self.camera_name}] Skipping device {serial} as it's already in use")
+                        continue
+                    
+                    logging.info(f"[{self.camera_name}] Checking Device {i}: Name={name}, Product ID={product_id}, Serial={serial}")
+                    if product_id in RealsenseService.DS5_product_ids:
+                        self.device = dev
+                        self.device_id = serial
+                        self.serial_number = serial  # Save for future reference
+                        logging.info(f"[{self.camera_name}] Using device {i}: Serial={serial}")
+                        return True
+                
+                logging.error(f"[{self.camera_name}] No compatible device found")
+                return False
+                
+            except RuntimeError as e:
+                if "failed to set power state" in str(e):
+                    logging.warning(f"[{self.camera_name}] Power state error during initialization. Retrying ({retry_count+1}/{max_retries})...")
+                    retry_count += 1
+                    time.sleep(3)  # Wait longer between retries
+                else:
+                    logging.error(f"[{self.camera_name}] Runtime error: {e}")
+                    logging.error(traceback.format_exc())
+                    return False
             except Exception as e:
-                logging.error(f"[{self.camera_name}] Error querying info for device {i}: {e}")
-                
-        logging.error(f"[{self.camera_name}] No compatible device found")
+                logging.error(f"[{self.camera_name}] Error finding device: {e}")
+                logging.error(traceback.format_exc())
+                return False
+        
+        logging.error(f"[{self.camera_name}] Failed to initialize device after {max_retries} retries")
         return False
 
     def configure_advanced_settings(self):
@@ -622,8 +648,15 @@ class Settings:
         args = self.parse_args()
         self.mavlink_device = args.connect
         self.baudrate = args.baudrate
-        self.rtsp_enable = args.rtsp_enable
-        self.video_enable = args.video_enable
+        # Remove old flags
+        # self.rtsp_enable = args.rtsp_enable
+        # self.video_enable = args.video_enable
+        # Add new flags
+        self.front_rtsp_enable = args.front_rtsp_enable
+        self.front_video_enable = args.front_video_enable
+        self.back_rtsp_enable = args.back_rtsp_enable
+        self.back_video_enable = args.back_video_enable
+        # Keep existing flags
         self.colorization_enable = args.colorization_enable
         self.use_preset = args.use_preset
         self.front_serial = args.front_serial
@@ -631,7 +664,10 @@ class Settings:
         self.num_cameras = sum(1 for s in [self.front_serial, self.back_serial] if s)
         
         logging.info(f"Connection string: {self.mavlink_device}")
-        logging.info(f"RTSP enabled: {self.rtsp_enable}")
+        # Update logging for new flags
+        logging.info(f"Front Camera: RTSP Enabled={self.front_rtsp_enable}, Video Enabled={self.front_video_enable}")
+        logging.info(f"Back Camera: RTSP Enabled={self.back_rtsp_enable}, Video Enabled={self.back_video_enable}")
+        logging.info(f"Colorization Enabled: {self.colorization_enable}")
         if self.front_serial:
             logging.info(f"Front camera serial: {self.front_serial}")
         if self.back_serial:
@@ -643,9 +679,16 @@ class Settings:
         parser = argparse.ArgumentParser(description="Realsense Service")
         parser.add_argument('--connect', type=str, default="/dev/ttyTHS1", help="Mavlink device connection string")
         parser.add_argument('--baudrate', type=int, default=230400, help="Baudrate for mavlink device")
-        parser.add_argument('--rtsp_enable', type=bool, default=True, help="Enable RTSP streaming")
-        parser.add_argument('--video_enable', type=bool, default=False, help="Enable video streaming")
-        parser.add_argument('--colorization_enable', type=bool, default=True, help="Enable colorization streaming")
+        # Remove old flags
+        # parser.add_argument('--rtsp_enable', type=bool, default=True, help="Enable RTSP streaming")
+        # parser.add_argument('--video_enable', type=bool, default=False, help="Enable video streaming")
+        # Add new flags
+        parser.add_argument('--front-rtsp-enable', action=argparse.BooleanOptionalAction, default=True, help="Enable RTSP streaming for front camera")
+        parser.add_argument('--front-video-enable', action=argparse.BooleanOptionalAction, default=False, help="Enable color video stream for front camera (requires RTSP)")
+        parser.add_argument('--back-rtsp-enable', action=argparse.BooleanOptionalAction, default=True, help="Enable RTSP streaming for back camera")
+        parser.add_argument('--back-video-enable', action=argparse.BooleanOptionalAction, default=False, help="Enable color video stream for back camera (requires RTSP)")
+        # Keep existing flags
+        parser.add_argument('--colorization-enable', action=argparse.BooleanOptionalAction, default=True, help="Enable colorized depth stream (requires RTSP)")
         parser.add_argument('--use_preset', type=bool, default=True, help="Use preset configuration file")
         parser.add_argument('--front-serial', type=str, default=None, help="Serial number of the front-facing RealSense camera")
         parser.add_argument('--back-serial', type=str, default=None, help="Serial number of the back-facing RealSense camera")
@@ -673,20 +716,11 @@ class StreamFactory(GstRtspServer.RTSPMediaFactory):
             f'appsrc name={self.appsink_src} is-live=true do_timestamp=true block=false format=GST_FORMAT_TIME ' 
             f'caps=video/x-raw,format=RGBA,width={color_width},height={color_height},framerate={fps}/1 ' 
             "! identity sync=true "
-            "! nvvidconv ! nvv4l2h264enc " 
-                "profile=0 " 
-                "bitrate=1000000 " 
-                # "EnableTwopassCBR=true "\
-                # "num-Ref-Frames=2 "\
-                "insert-sps-pps=true "\
-                "maxperf-enable=true "\
-                "poc-type=2 "\
-                "insert-aud=true "\
-                "insert-vui=true "\
-                "iframeinterval=3 "\
-                "idrinterval=1 "\
+            "! videoconvert ! video/x-raw,format=I420 "  # x264enc typically expects I420
+            "! x264enc " # Removed speed-preset and tune options, using defaults
+            "bitrate=1000 " # Adjust bitrate as needed (in kbps)
+            "key-int-max=30 " # Set keyframe interval
             '! rtph264pay config-interval=-1 name=pay0 pt=96'
-            
         )
         
         self.last_frame = np.zeros((self.height, self.width, 3), dtype=np.uint8).tobytes()
@@ -980,10 +1014,10 @@ class RealsenseService:
         try:
             self.settings = Settings()    
         
-            # RTSP streaming configuration
-            self.RTSP_STREAMING_ENABLE = self.settings.rtsp_enable
-            self.COLORIZATION_ENABLE = self.settings.colorization_enable
-            self.VIDEO_ENABLE = self.settings.video_enable
+            # RTSP streaming configuration - Moved checks to start()
+            # self.RTSP_STREAMING_ENABLE = self.settings.rtsp_enable # Removed
+            # self.COLORIZATION_ENABLE = self.settings.colorization_enable # Kept in settings, used in start()
+            # self.VIDEO_ENABLE = self.settings.video_enable # Removed
             self.RTSP_PORT = "3355"
             # Define mount points for front and back cameras
             self.FRONT_VIDEO_MOUNT_POINT = "/front/video"
@@ -1009,97 +1043,103 @@ class RealsenseService:
 
             # Create camera instances
             # Front camera (0 degrees - facing forward)
-            self.front_camera = ManagedCamera(
-                camera_name="front",
-                serial_number=self.settings.front_serial,
-                depth_width=self.depth_width,
-                depth_height=self.depth_height,
-                color_width=self.color_width,
-                color_height=self.color_height,
-                depth_fps=self.depth_fps,
-                color_fps=self.color_fps,
-                depth_range_m=self.depth_range_m,
-                use_preset=self.use_preset,
-                preset_file=self.preset_file,
-                camera_facing_angle_degree=0,  # Front-facing
-                sensor_type=FRONT_CAM_SENSOR_TYPE,
-                frame_type=FRONT_CAM_FRAME,
-                obstacle_line_height_ratio=self.obstacle_line_height_ratio,
-                obstacle_line_thickness_pixel=self.obstacle_line_thickness_pixel
-            )
+            self.front_camera = None
+            if self.settings.front_serial:
+                self.front_camera = ManagedCamera(
+                    camera_name="front",
+                    serial_number=self.settings.front_serial,
+                    depth_width=self.depth_width,
+                    depth_height=self.depth_height,
+                    color_width=self.color_width,
+                    color_height=self.color_height,
+                    depth_fps=self.depth_fps,
+                    color_fps=self.color_fps,
+                    depth_range_m=self.depth_range_m,
+                    use_preset=self.use_preset,
+                    preset_file=self.preset_file,
+                    camera_facing_angle_degree=0,  # Front-facing
+                    sensor_type=FRONT_CAM_SENSOR_TYPE,
+                    frame_type=FRONT_CAM_FRAME,
+                    obstacle_line_height_ratio=self.obstacle_line_height_ratio,
+                    obstacle_line_thickness_pixel=self.obstacle_line_thickness_pixel
+                )
             
             # Back camera (180 degrees - facing backward)
-            self.back_camera = ManagedCamera(
-                camera_name="back",
-                serial_number=self.settings.back_serial,
-                depth_width=self.depth_width,
-                depth_height=self.depth_height,
-                color_width=self.color_width,
-                color_height=self.color_height,
-                depth_fps=self.depth_fps,
-                color_fps=self.color_fps,
-                depth_range_m=self.depth_range_m,
-                use_preset=self.use_preset,
-                preset_file=self.preset_file,
-                camera_facing_angle_degree=180,  # Rear-facing
-                sensor_type=BACK_CAM_SENSOR_TYPE,
-                frame_type=BACK_CAM_FRAME,
-                obstacle_line_height_ratio=self.obstacle_line_height_ratio,
-                obstacle_line_thickness_pixel=self.obstacle_line_thickness_pixel
-            )
+            self.back_camera = None
+            if self.settings.back_serial:
+                self.back_camera = ManagedCamera(
+                    camera_name="back",
+                    serial_number=self.settings.back_serial,
+                    depth_width=self.depth_width,
+                    depth_height=self.depth_height,
+                    color_width=self.color_width,
+                    color_height=self.color_height,
+                    depth_fps=self.depth_fps,
+                    color_fps=self.color_fps,
+                    depth_range_m=self.depth_range_m,
+                    use_preset=self.use_preset,
+                    preset_file=self.preset_file,
+                    camera_facing_angle_degree=180,  # Rear-facing
+                    sensor_type=BACK_CAM_SENSOR_TYPE,
+                    frame_type=BACK_CAM_FRAME,
+                    obstacle_line_height_ratio=self.obstacle_line_height_ratio,
+                    obstacle_line_thickness_pixel=self.obstacle_line_thickness_pixel
+                )
 
             # Store cameras in a list for easier iteration
             self.cameras = []
-            if self.settings.front_serial:
+            if self.front_camera:
                 self.cameras.append(self.front_camera)
-            if self.settings.back_serial:
+            if self.back_camera:
                 self.cameras.append(self.back_camera)
 
             # System state
             self.time_to_exit = False
-            self.device_id = None
-            self.camera_name = None
-            self.pipe = None
-            self.depth_scale = 0
-            self.depth_hfov_deg = None
-            self.depth_vfov_deg = None
-            self.colorizer = rs.colorizer()
+            # self.device_id = None # Moved to ManagedCamera
+            # self.camera_name = None # Moved to ManagedCamera
+            # self.pipe = None # Moved to ManagedCamera
+            # self.depth_scale = 0 # Moved to ManagedCamera
+            # self.depth_hfov_deg = None # Moved to ManagedCamera
+            # self.depth_vfov_deg = None # Moved to ManagedCamera
+            # self.colorizer = rs.colorizer() # Moved to ManagedCamera
             
-            # 7 is white close black far
-            self.colorizer.set_option(rs.option.color_scheme, 7)
-            self.colorizer.set_option(rs.option.min_distance, 1.0)
-            self.colorizer.set_option(rs.option.max_distance, 2.5)
+            # # 7 is white close black far # Moved to ManagedCamera
+            # self.colorizer.set_option(rs.option.color_scheme, 7)
+            # self.colorizer.set_option(rs.option.min_distance, 1.0)
+            # self.colorizer.set_option(rs.option.max_distance, 2.5)
             
-            self.min_depth_cm = int(self.depth_range_m[0] * 100)  # In cm
-            self.max_depth_cm = int(self.depth_range_m[1] * 100)  # In cm, should be a little conservative
-            self.distances_array_length = 72
-            self.angle_offset = None
-            self.increment_f  = None
-            self.distances = np.ones((self.distances_array_length,), dtype=np.uint16) * (self.max_depth_cm + 1)
+            # self.min_depth_cm = int(self.depth_range_m[0] * 100)  # Moved to ManagedCamera
+            # self.max_depth_cm = int(self.depth_range_m[1] * 100)  # Moved to ManagedCamera
+            # self.distances_array_length = 72 # Moved to ManagedCamera
+            # self.angle_offset = None # Moved to ManagedCamera
+            # self.increment_f  = None # Moved to ManagedCamera
+            # self.distances = np.ones((self.distances_array_length,), dtype=np.uint16) * (self.max_depth_cm + 1) # Moved to ManagedCamera
             
-            self.debug_enable = False
-            self.display_name  = 'Input/output depth'
-            self.last_time = time.time()
+            # self.debug_enable = False # Moved to MavlinkIntegration
+            # self.display_name  = 'Input/output depth' # Not used? Removed for now.
+            # self.last_time = time.time() # Not used? Removed for now.
             
             self.video_thread = None
-            
             self.glib_loop = None
             self.gst_server = None
             
-            if self.RTSP_STREAMING_ENABLE:
-                logging.info("Initializing RTSP streaming...")
+            # Initialize GStreamer only if any RTSP stream is enabled
+            self.any_rtsp_enabled = (self.settings.front_rtsp_enable and self.front_camera is not None) or  (self.settings.back_rtsp_enable and self.back_camera is not None)
+            
+            if self.any_rtsp_enabled:
+                logging.info("Initializing GStreamer for RTSP...")
                 Gst.init(None)
                 self.gst_server = GstServer(self.RTSP_PORT)
                 self.glib_loop = GLib.MainLoop()
                 self.video_thread = threading.Thread(target=self.glib_loop.run, args=())
             else:
-                logging.info("RTSP streaming disabled.")
+                logging.info("RTSP streaming disabled for all cameras.")
             
             self.mavlink = MavlinkIntegration(
                 self.settings.mavlink_device, self.settings.baudrate
             )
             
-            self.camera_thread = threading.Thread(target=self.camera_reader)
+            # self.camera_thread = threading.Thread(target=self.camera_reader) # Removed - ManagedCamera has its own thread
         except Exception as e:
             logging.error(f"Error during initialization: {e}")
             logging.error(traceback.format_exc())
@@ -1113,18 +1153,61 @@ class RealsenseService:
             # Initialize cameras if available
             if not self.cameras:
                 logging.warning("No cameras were configured! Check serial numbers.")
+                # If no cameras, still keep mavlink running maybe? Or exit? For now, just return.
                 return
 
-            # Find devices for each camera
+            # Process cameras in reverse order (back first, then front) to avoid resource issues
             active_cameras = []
-            for camera in self.cameras:
+            
+            # Process back camera first if available (this ordering is critical)
+            if self.back_camera:
+                logging.info("Initializing back camera first...")
+                # Process back camera
+                camera = self.back_camera
+                camera_rtsp_enabled = self.settings.back_rtsp_enable
+                camera_video_enabled = self.settings.back_video_enable
+                
+                # Determine if color stream needs to be enabled for this camera
+                enable_color_stream = camera_rtsp_enabled and (camera_video_enabled or self.settings.colorization_enable)
+
+                # Try to initialize back camera
                 if camera.find_device():
                     if camera.configure_advanced_settings():
                         logging.info(f"Advanced settings applied for {camera.camera_name} camera")
-                    if camera.connect(enable_color=self.RTSP_STREAMING_ENABLE and self.VIDEO_ENABLE):
+                    if camera.connect(enable_color=enable_color_stream):
                         active_cameras.append(camera)
                         # Track active serials to avoid using the same device twice
                         RealsenseService.active_camera_serials.add(camera.serial_number)
+                        logging.info(f"Back camera initialized successfully: {camera.serial_number}")
+                    else:
+                        logging.error(f"Failed to connect to {camera.camera_name} camera")
+                else:
+                    logging.error(f"Failed to find {camera.camera_name} camera")
+            
+            # Add a significant delay before initializing the front camera
+            logging.info("Waiting for system to stabilize before front camera initialization...")
+            time.sleep(8)
+            
+            # Now process front camera if available
+            if self.front_camera:
+                logging.info("Initializing front camera next...")
+                # Process front camera
+                camera = self.front_camera
+                camera_rtsp_enabled = self.settings.front_rtsp_enable
+                camera_video_enabled = self.settings.front_video_enable
+                
+                # Determine if color stream needs to be enabled for this camera
+                enable_color_stream = camera_rtsp_enabled and (camera_video_enabled or self.settings.colorization_enable)
+
+                # Try to initialize front camera
+                if camera.find_device():
+                    if camera.configure_advanced_settings():
+                        logging.info(f"Advanced settings applied for {camera.camera_name} camera")
+                    if camera.connect(enable_color=enable_color_stream):
+                        active_cameras.append(camera)
+                        # Track active serials to avoid using the same device twice
+                        RealsenseService.active_camera_serials.add(camera.serial_number)
+                        logging.info(f"Front camera initialized successfully: {camera.serial_number}")
                     else:
                         logging.error(f"Failed to connect to {camera.camera_name} camera")
                 else:
@@ -1134,55 +1217,85 @@ class RealsenseService:
             self.cameras = active_cameras
             if not self.cameras:
                 logging.error("No cameras were successfully initialized!")
+                # Stop mavlink if no cameras could start?
+                # self.mavlink.stop()
                 return
 
             # Configure RTSP streaming for each camera if enabled
-            if self.RTSP_STREAMING_ENABLE and self.gst_server is not None:
+            rtsp_configured = False
+            if self.any_rtsp_enabled and self.gst_server is not None:
                 for camera in self.cameras:
+                    is_front = camera.camera_name == "front"
+                    camera_rtsp_enabled = self.settings.front_rtsp_enable if is_front else self.settings.back_rtsp_enable
+                    camera_video_enabled = self.settings.front_video_enable if is_front else self.settings.back_video_enable
+
+                    # Skip configuration if RTSP is not enabled for this specific camera
+                    if not camera_rtsp_enabled:
+                        continue
+                        
+                    rtsp_configured = True # Mark that at least one stream was set up
+
                     # Set up mount points based on camera name
-                    if camera.camera_name == "front":
-                        video_mount = self.FRONT_VIDEO_MOUNT_POINT
-                        depth_mount = self.FRONT_DEPTH_MOUNT_POINT
-                    elif camera.camera_name == "back":
-                        video_mount = self.BACK_VIDEO_MOUNT_POINT
-                        depth_mount = self.BACK_DEPTH_MOUNT_POINT
-                    else:
-                        # Default fallback for any other camera names
-                        video_mount = f"/{camera.camera_name}/video"
-                        depth_mount = f"/{camera.camera_name}/depth"
+                    video_mount = self.FRONT_VIDEO_MOUNT_POINT if is_front else self.BACK_VIDEO_MOUNT_POINT
+                    depth_mount = self.FRONT_DEPTH_MOUNT_POINT if is_front else self.BACK_DEPTH_MOUNT_POINT
+                   
+                    # Configure color video stream if enabled for this camera
+                    if camera_video_enabled:
+                        try:
+                            # Create a unique factory instance for each video stream
+                            video_factory = StreamFactory(f'{camera.camera_name}_video')
+                            video_factory.configure(camera.COLOR_FPS, camera.COLOR_WIDTH, camera.COLOR_HEIGHT)
+                            self.gst_server.get_mount_points().add_factory(video_mount, video_factory)
+                            video_factory.set_shared(True) # Should still be shared if multiple clients connect
+                            camera.video_stream = video_factory # Assign factory to camera
+                            logging.info(f"RTSP stream for {camera.camera_name} video: rtsp://<host>:{self.RTSP_PORT}{video_mount}")
+                        except Exception as e:
+                            logging.error(f"Error setting up video stream for {camera.camera_name}: {e}")
+                            camera_video_enabled = False
 
-                    # Configure color video stream if enabled
-                    if self.VIDEO_ENABLE:
-                        self.gst_server.configure_video(
-                            camera.COLOR_FPS, camera.COLOR_WIDTH, camera.COLOR_HEIGHT, 
-                            video_mount
-                        )
-                        camera.video_stream = self.gst_server.normal_video
-                        logging.info(f"RTSP stream for {camera.camera_name} video: rtsp://0.0.0.0:{self.RTSP_PORT}{video_mount}")
+                    # Configure colorized depth stream if enabled globally (common setting for now)
+                    if self.settings.colorization_enable:
+                        try:
+                             # Create a unique factory instance for each depth stream
+                            depth_factory = StreamFactory(f'{camera.camera_name}_depth_colorized')
+                            depth_factory.configure(camera.DEPTH_FPS, camera.DEPTH_WIDTH, camera.DEPTH_HEIGHT)
+                            self.gst_server.get_mount_points().add_factory(depth_mount, depth_factory)
+                            depth_factory.set_shared(True) # Should still be shared
+                            camera.colorized_stream = depth_factory # Assign factory to camera
+                            logging.info(f"RTSP stream for {camera.camera_name} depth: rtsp://<host>:{self.RTSP_PORT}{depth_mount}")
+                        except Exception as e:
+                            logging.error(f"Error setting up depth stream for {camera.camera_name}: {e}")
 
-                    # Configure colorized depth stream if enabled
-                    if self.COLORIZATION_ENABLE:
-                        self.gst_server.configure_depth(
-                            camera.DEPTH_FPS, camera.DEPTH_WIDTH, camera.DEPTH_HEIGHT, 
-                            depth_mount
-                        )
-                        camera.colorized_stream = self.gst_server.colorized_video
-                        logging.info(f"RTSP stream for {camera.camera_name} depth: rtsp://0.0.0.0:{self.RTSP_PORT}{depth_mount}")
+                    # Store GST server reference in camera (needed?) - Camera mainly needs its stream factory
+                    camera.gst_server = self.gst_server # Keep for now, might not be needed
 
-                    # Store GST server reference in camera
-                    camera.gst_server = self.gst_server
-
-                # Start RTSP server thread
-                self.video_thread.start()
+                # Start RTSP server thread only if we actually configured any streams
+                if rtsp_configured and self.video_thread and not self.video_thread.is_alive():
+                    self.video_thread.start()
+                elif not rtsp_configured:
+                     logging.info("No RTSP streams were configured to run.")
 
             # Start camera processing threads
             for camera in self.cameras:
-                camera.start_processing(
-                    self.mavlink,
-                    rtsp_enabled=self.RTSP_STREAMING_ENABLE,
-                    video_enabled=self.VIDEO_ENABLE,
-                    colorization_enabled=self.COLORIZATION_ENABLE
-                )
+                try:
+                    is_front = camera.camera_name == "front"
+                    camera_rtsp_enabled = self.settings.front_rtsp_enable if is_front else self.settings.back_rtsp_enable
+                    camera_video_enabled = self.settings.front_video_enable if is_front else self.settings.back_video_enable
+                    
+                    # Determine args for start_processing based on per-camera settings
+                    process_rtsp_enabled = camera_rtsp_enabled
+                    process_video_enabled = camera_rtsp_enabled and camera_video_enabled
+                    process_colorization_enabled = camera_rtsp_enabled and self.settings.colorization_enable
+
+                    camera.start_processing(
+                        self.mavlink,
+                        rtsp_enabled=process_rtsp_enabled,
+                        video_enabled=process_video_enabled,
+                        colorization_enabled=process_colorization_enabled
+                    )
+                    logging.info(f"Started processing for {camera.camera_name} camera")
+                except Exception as e:
+                    logging.error(f"Failed to start processing for {camera.camera_name}: {e}")
                 
         except Exception as e:
             logging.error(f"Error during startup: {e}")
@@ -1194,17 +1307,33 @@ class RealsenseService:
         self.time_to_exit = True
 
         # Stop all cameras
+        logging.info("Stopping camera processing...")
         for camera in self.cameras:
-            camera.stop_processing()
+            try:
+                camera.stop_processing()
+            except Exception as e:
+                 logging.error(f"Error stopping camera {camera.camera_name}: {e}")
+
 
         # Stop Mavlink
-        self.mavlink.stop()
+        logging.info("Stopping Mavlink integration...")
+        try:
+            self.mavlink.stop()
+        except Exception as e:
+            logging.error(f"Error stopping Mavlink: {e}")
 
         # Stop RTSP server
         if self.glib_loop:
-            self.glib_loop.quit()
-            if self.video_thread and self.video_thread.is_alive():
-                self.video_thread.join()
+            logging.info("Stopping RTSP server...")
+            try:
+                if self.glib_loop.is_running():
+                    self.glib_loop.quit()
+                if self.video_thread and self.video_thread.is_alive():
+                    self.video_thread.join(timeout=2) # Add timeout
+                    if self.video_thread.is_alive():
+                         logging.warning("RTSP video thread did not exit cleanly.")
+            except Exception as e:
+                 logging.error(f"Error stopping RTSP server: {e}")
 
     def exit_int(self, sig, frame):
         logging.info("Caught SIGINT, shutting down...")
@@ -1216,23 +1345,31 @@ class RealsenseService:
         self.stop()
         sys.exit(0)
 
-    def camera_reader(self):
-        """
-        Main camera processing loop for the service
-        """
-        while not self.time_to_exit:
-            try:
-                time.sleep(0.1)  # Sleep to prevent busy waiting
-            except Exception as e:
-                logging.error(f"Error in camera reader: {e}")
-                time.sleep(0.1)
+    # Removed camera_reader method as processing is now handled within ManagedCamera instances
+    # def camera_reader(self): ...
 
 if __name__ == "__main__":
     service = RealsenseService()
     service.start()
+    # Keep main thread alive
     try:
-        while True:
-            time.sleep(1)
+        # Instead of joining threads here (which might block exit),
+        # rely on signal handlers or check if essential threads are alive.
+        # The ManagedCamera threads and Mavlink threads manage their own lifecycle.
+        # The Glib loop runs in its own thread and is stopped via glib_loop.quit().
+        while not service.time_to_exit:
+             # Check if mavlink is still alive as an indicator?
+             if not service.mavlink.heartbeat_thread.is_alive():
+                  logging.error("Mavlink heartbeat thread died. Exiting.")
+                  service.stop()
+                  break
+             # Check camera threads? Maybe too complex.
+             time.sleep(1)
     except KeyboardInterrupt:
+        logging.info("KeyboardInterrupt in main loop, stopping...")
         service.stop()
-        logging.info("Exiting...")
+    finally:
+        # Ensure stop is called even if the loop breaks unexpectedly
+        if not service.time_to_exit:
+             service.stop()
+        logging.info("Exiting main thread.")
