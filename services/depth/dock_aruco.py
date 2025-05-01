@@ -1,62 +1,79 @@
 #!/usr/bin/env python3
 
-import pyrealsense2 as rs
-import numpy as np
-import signal
-import sys
-import time
-import threading
-import os
+# Standard library imports
+import argparse
 import logging
+import os
+import signal
+import socket
+import sys
+import threading
+import time
 import traceback
 from collections import deque
-import cv2
-import cv2.aruco as aruco  # Import aruco module
-import gi
-import argparse
-import socket
-from pymavlink import mavutil # Re-import pymavlink
 
+# Third-party imports
+import cv2
+import cv2.aruco as aruco
+import gi
+import numpy as np
+import pyrealsense2 as rs
+from pymavlink import mavutil
+
+# GStreamer setup
 gi.require_version('Gst', '1.0')
 gi.require_version('GstRtspServer', '1.0')
 from gi.repository import Gst, GstRtspServer, GLib
 
-# Set up more verbose logging to debug RTSP issues
+# Configure logging - reduced logging level
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.INFO,  # Changed from WARNING to INFO
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
 # --- Constants ---
-TARGET_DISTANCE_M = 0.30 # Target distance from marker (30 cm)
-# --- RC Override Constants ---
-BACKWARD_PWM = 1400    # Slower PWM value for backward throttle (closer to 1500 neutral)
-STEERING_PWM = 1500    # PWM value for neutral steering (1000-2000)
-NEUTRAL_THROTTLE_PWM = 1500 # PWM value for neutral throttle
-THROTTLE_CHAN_IDX = 2  # Channel 3 index (0-based)
-STEERING_CHAN_IDX = 3  # Channel 4 index (0-based)
-NUM_CHANNELS = 8       # Number of RC channels to override
+# Camera and detection constants
+TARGET_DISTANCE_M = 0.20
+MARKER_SIZE_CM = 5.2
 
-# --- Control Loop Constants ---
-CONTROL_LOOP_RATE_HZ = 10  # Target control loop frequency
-COMMAND_RESEND_INTERVAL_S = 0.5 # Resend RC override every 0.5 seconds
+# Mavlink control constants
+BACKWARD_THROTTLE_VALUE = -300
+LEFT_STEER_VALUE = -500
+RIGHT_STEER_VALUE = 500  # Added right steering value
+NEUTRAL_THROTTLE_VALUE = 0
+NEUTRAL_STEER_VALUE = 0
 
+# Steering control constants
+STEERING_GAIN = -0.5
+MIN_STEERING_VALUE = -1000
+MAX_STEERING_VALUE = 1000
+MIN_STEERING_THRESHOLD = 200  # Minimum steering threshold
+
+# Control loop constants
+ROTATION_PWM_OFFSET = 200
+SEARCH_STEP_DURATION_S = 1.5
+SEARCH_PAUSE_DURATION_S = 1.0
+CONTROL_LOOP_RATE_HZ = 10
+
+# --- Stream Factory Class ---
 class StreamFactory(GstRtspServer.RTSPMediaFactory):
+    """Handles frame processing and streaming for RTSP."""
     def __init__(self, appsink_src='source', **properties):
         super(StreamFactory, self).__init__(**properties)
         self.frame_lock = threading.Lock()
         self.last_frame = None
         self.appsink_src = appsink_src
-        self.color_buffer = deque(maxlen=10)  # Increased buffer size for more stability
+        self.color_buffer = deque(maxlen=10)
     
     def configure(self, fps, width, height):
+        """Configure the stream with specific parameters."""
         self.number_frames = 0
         self.fps = fps
         self.duration = 1 / self.fps * Gst.SECOND
         self.width = width
         self.height = height
         
-        # Simplified pipeline with lower bitrate for better compatibility
+        # Pipeline with lower bitrate for better compatibility
         self.launch_string = (
             f'appsrc name={self.appsink_src} is-live=true do_timestamp=true block=false format=GST_FORMAT_TIME ' 
             f'caps=video/x-raw,format=RGBA,width={width},height={height},framerate={fps}/1 ' 
@@ -66,19 +83,21 @@ class StreamFactory(GstRtspServer.RTSPMediaFactory):
         )
         
         self.last_frame = np.zeros((self.height, self.width, 4), dtype=np.uint8).tobytes()
-        logging.info(f"Configured stream with resolution {width}x{height} at {fps} fps")
-        
+            
     def add_to_buffer(self, frame):
+        """Add a frame to the buffer with thread safety."""
         with self.frame_lock:
             self.color_buffer.append(frame)
             
     def get_from_buffer(self):
+        """Get a frame from the buffer with thread safety."""
         with self.frame_lock:
             if len(self.color_buffer) == 0:
                 raise IndexError("Buffer empty")
             return self.color_buffer.pop()
 
     def on_need_data(self, src, length):
+        """Callback for when GStreamer needs data to send."""
         try:
             frame = self.get_from_buffer()
             data = frame.tobytes()
@@ -103,14 +122,18 @@ class StreamFactory(GstRtspServer.RTSPMediaFactory):
         return retval
 
     def do_create_element(self, url):
+        """Create the GStreamer pipeline element."""
         return Gst.parse_launch(self.launch_string)
 
     def do_configure(self, rtsp_media):
+        """Configure the RTSP media."""
         self.number_frames = 0
         consuming_appsrc = rtsp_media.get_element().get_child_by_name(self.appsink_src)
         consuming_appsrc.connect('need-data', self.on_need_data)
 
+
 class GstServer(GstRtspServer.RTSPServer):
+    """RTSP server for streaming video feeds."""
     def __init__(self, rtsp_port='8554', **properties):
         super(GstServer, self).__init__(**properties)
         self.rtsp_port = rtsp_port
@@ -125,6 +148,7 @@ class GstServer(GstRtspServer.RTSPServer):
         self.normal_video = None
             
     def configure_depth(self, fps, width, height, mount_point):
+        """Configure a depth video stream."""
         self.colorized_video = StreamFactory('depth_colorized')
         self.colorized_video.configure(fps, width, height)
         self.get_mount_points().add_factory(mount_point, self.colorized_video)            
@@ -132,40 +156,49 @@ class GstServer(GstRtspServer.RTSPServer):
         return self.colorized_video
         
     def configure_video(self, fps, width, height, mount_point):
+        """Configure a normal video stream."""
         self.normal_video = StreamFactory('normal_video')
         self.normal_video.configure(fps, width, height)
         self.get_mount_points().add_factory(mount_point, self.normal_video)            
         self.normal_video.set_shared(True)
         return self.normal_video
 
-# ===================== MavlinkController Class (Simplified Integration) ======================
-# We can integrate the necessary MAVLink functions directly into BackCameraStreamer
-# or define helper functions if preferred, avoiding a separate class for simplicity here.
-# ============================================================================================
-
+# --- Main BackCameraStreamer Class ---
 class BackCameraStreamer:
+    """Main class that handles camera streaming, ArUco detection, and vehicle control."""
+    
     # Product IDs for D400 series
-    DS5_product_ids = [
+    DS5_PRODUCT_IDS = [
         "0AD1", "0AD2", "0AD3", "0AD4", "0AD5", "0AF6", "0AFE", 
         "0AFF", "0B00", "0B01", "0B03", "0B07", "0B3A", "0B5C"
     ]
     
-    def __init__(self, serial_number="021222073747"):  # Default to the provided back camera serial
+    # Control states
+    STATE_SEARCHING = 0
+    STATE_APPROACHING = 1
+    STATE_DONE = 2
+    
+    def __init__(self, serial_number="021222073747"):
+        """Initialize the BackCameraStreamer with configuration parameters."""
+        # Camera configuration
         self.serial_number = serial_number
         self.device = None
         self.device_id = None
         self.pipe = None
-        self.profile = None # Store profile for intrinsics
+        self.profile = None
         self.depth_width = 640
         self.depth_height = 480
         self.color_width = 640
         self.color_height = 480
         self.fps = 15
+        self.depth_scale = 0
+        
+        # Preset configuration
         self.use_preset = False
         self.preset_file = "./cfg/d4xx-default.json"
         
         # RTSP Configuration
-        self.rtsp_port = "8554"  # Default port
+        self.rtsp_port = "8554"
         self.video_mount_point = "/back/video"
         self.depth_mount_point = "/back/depth"
         self.enable_color = True
@@ -178,24 +211,25 @@ class BackCameraStreamer:
         self.glib_loop = None
         self.video_thread = None
         
+        # Depth processing
         self.colorizer = rs.colorizer()
         self.colorizer.set_option(rs.option.color_scheme, 7)  # White close, black far
         self.colorizer.set_option(rs.option.min_distance, 1.0)
         self.colorizer.set_option(rs.option.max_distance, 2.5)
         
-        self.depth_scale = 0
+        # Threads
         self.time_to_exit = False
         self.camera_thread = None
         
         # Filters for depth processing
         self.filters = [
             [False, "Decimation Filter",    rs.decimation_filter()],
-            [True,  "Threshold Filter",    rs.threshold_filter()],
-            [True,  "Depth to Disparity",  rs.disparity_transform(True)],
-            [True,  "Spatial Filter",      rs.spatial_filter()],
-            [True,  "Temporal Filter",     rs.temporal_filter()],
-            [False, "Hole Filling Filter", rs.hole_filling_filter()],
-            [True,  "Disparity to Depth",  rs.disparity_transform(False)]
+            [True,  "Threshold Filter",     rs.threshold_filter()],
+            [True,  "Depth to Disparity",   rs.disparity_transform(True)],
+            [True,  "Spatial Filter",       rs.spatial_filter()],
+            [True,  "Temporal Filter",      rs.temporal_filter()],
+            [False, "Hole Filling Filter",  rs.hole_filling_filter()],
+            [True,  "Disparity to Depth",   rs.disparity_transform(False)]
         ]
         
         # Configure threshold filter
@@ -206,7 +240,7 @@ class BackCameraStreamer:
         self.filter_to_apply = [f[2] for f in self.filters if f[0]]
         
         # ArUco configuration
-        self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250) # Changed to 4X4
+        self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
         self.aruco_params = aruco.DetectorParameters()
         self.target_marker_id = 70
         self.marker_size_cm = 5.2
@@ -218,33 +252,33 @@ class BackCameraStreamer:
         
         # MAVLink Attributes
         self.connection = None
-        self.mavlink_connect_str = "/dev/ttyUSB0" # Default connection string
-        self.mavlink_baudrate = 230400 # Default baudrate
+        self.mavlink_connect_str = "/dev/ttyUSB0"
+        self.mavlink_baudrate = 230400
 
         # Control State
-        self.control_lock = threading.Lock() # Lock for accessing shared control variables
+        self.control_lock = threading.Lock()
         self.target_marker_detected = False
         self.estimated_distance_m = None
+        self.estimated_horizontal_error = None
+        # Track which side the marker was last seen on
+        self.last_marker_side = None  # 'left', 'right', or None
         self.control_thread = None
         self.last_command_time = 0
 
-        # RC Command Placeholders
-        self.neutral_cmd = None
-        self.backward_cmd = None
-        self.release_cmd = None
-        
         # Set up signal handlers
         signal.signal(signal.SIGINT, self.exit_handler)
         signal.signal(signal.SIGTERM, self.exit_handler)
         
-        # Parse arguments
+        # Parse command line arguments
         self.parse_args()
         
     def parse_args(self):
+        """Parse command line arguments."""
         parser = argparse.ArgumentParser(description="Back Camera RTSP Streamer with ArUco Docking Control")
         parser.add_argument('--serial', type=str, default="021222073747", 
                           help="Serial number of the back camera (default: 021222073747)")
-        parser.add_argument('--rtsp-port', type=str, default="8554", help="RTSP port")
+        parser.add_argument('--rtsp-port', type=str, default="8554", 
+                          help="RTSP port")
         parser.add_argument('--connect', type=str, default=self.mavlink_connect_str, 
                           help="MAVLink connection string (e.g., /dev/ttyUSB0, udpout:127.0.0.1:14777)")
         parser.add_argument('--baudrate', type=int, default=self.mavlink_baudrate, 
@@ -269,12 +303,11 @@ class BackCameraStreamer:
         self.preset_file = args.preset_file
         
         logging.info(f"Configured to use camera with serial: {self.serial_number}")
-        logging.info(f"Using ArUco dictionary: DICT_4X4_250, Target ID: {self.target_marker_id}")
         logging.info(f"MAVLink Connection: {self.mavlink_connect_str}, Baudrate: {self.mavlink_baudrate}")
     
     def find_device(self):
-        """Find a RealSense device with the specified serial number or any compatible device"""
-        max_retries = 5  # Increased retries
+        """Find a RealSense device with the specified serial number or any compatible device."""
+        max_retries = 5
         retry_count = 0
         
         while retry_count < max_retries:
@@ -290,17 +323,16 @@ class BackCameraStreamer:
                             serial = dev.get_info(rs.camera_info.serial_number)
                             product_id = dev.get_info(rs.camera_info.product_id)
                             name = dev.get_info(rs.camera_info.name) if dev.supports(rs.camera_info.name) else "Unknown"
-                            logging.info(f"Available device {i}: Name={name}, Product ID={product_id}, Serial={serial}")
                             
                             # If specific serial number is requested, check for match
                             if self.serial_number and serial == self.serial_number:
-                                if product_id in self.DS5_product_ids:
+                                if product_id in self.DS5_PRODUCT_IDS:
                                     self.device = dev
                                     self.device_id = serial
                                     logging.info(f"Found device with serial {serial}")
                                     return True
                             # Otherwise, use the first compatible device
-                            elif not self.serial_number and product_id in self.DS5_product_ids:
+                            elif not self.serial_number and product_id in self.DS5_PRODUCT_IDS:
                                 self.device = dev
                                 self.device_id = serial
                                 self.serial_number = serial  # Save for future reference
@@ -315,7 +347,6 @@ class BackCameraStreamer:
                     logging.error("No compatible device found")
                 
                 retry_count += 1
-                logging.info(f"Retrying device search ({retry_count}/{max_retries})...")
                 time.sleep(2)
                 
             except Exception as e:
@@ -344,15 +375,12 @@ class BackCameraStreamer:
                 logging.info("Enabling advanced mode...")
                 advnc_mode.toggle_advanced_mode(True)
                 # Device will disconnect and reconnect
-                logging.info("Sleeping for 5 seconds...")
                 time.sleep(5)
                 # Need to find the device again
                 if not self.find_device():
                     logging.error("Failed to reconnect to device")
                     return False
                 advnc_mode = rs.rs400_advanced_mode(self.device)
-                
-            logging.info(f"Advanced mode is {'enabled' if advnc_mode.is_enabled() else 'disabled'}")
             
             if not advnc_mode.is_enabled():
                 logging.warning("Advanced mode not enabled, skipping preset loading")
@@ -372,7 +400,7 @@ class BackCameraStreamer:
             return False
     
     def connect(self):
-        """Connect to the camera and start streaming"""
+        """Connect to the camera and start streaming."""
         try:
             # Create pipeline
             self.pipe = rs.pipeline()
@@ -413,8 +441,6 @@ class BackCameraStreamer:
                     [0, 0, 1]
                 ], dtype=np.float32)
                 self.dist_coeffs = np.array(intrinsics.coeffs, dtype=np.float32)
-                logging.info("Camera Matrix:\n" + str(self.camera_matrix))
-                logging.info("Distortion Coefficients: " + str(self.dist_coeffs))
             
             return True
             
@@ -424,14 +450,14 @@ class BackCameraStreamer:
             return False
     
     def _filter_depth_frame(self, depth_frame):
-        """Apply filters to depth frame"""
+        """Apply filters to depth frame."""
         filtered_frame = depth_frame
         for f in self.filter_to_apply:
             filtered_frame = f.process(filtered_frame)
         return filtered_frame
     
     def setup_rtsp(self):
-        """Initialize RTSP streaming"""
+        """Initialize RTSP streaming."""
         try:
             # Initialize GStreamer
             Gst.init(None)
@@ -453,16 +479,10 @@ class BackCameraStreamer:
                 )
                 logging.info(f"RTSP depth stream available at: rtsp://{local_ip}:{self.rtsp_port}{self.depth_mount_point}")
                 
-            # Test VLC command
-            vlc_cmd = f"vlc rtsp://{local_ip}:{self.rtsp_port}{self.video_mount_point}"
-            ffplay_cmd = f"ffplay rtsp://{local_ip}:{self.rtsp_port}{self.video_mount_point}"
-            logging.info(f"Play with VLC: {vlc_cmd}")
-            logging.info(f"Play with FFplay: {ffplay_cmd}")
-            
             # Create and start the GLib main loop
             self.glib_loop = GLib.MainLoop()
             self.video_thread = threading.Thread(target=self.glib_loop.run)
-            self.video_thread.daemon = True  # Make thread a daemon so it exits when main thread exits
+            self.video_thread.daemon = True
             self.video_thread.start()
             
             return True
@@ -472,7 +492,7 @@ class BackCameraStreamer:
             return False
     
     def get_local_ip(self):
-        """Get local IP address for better URL display in logs"""
+        """Get local IP address for better URL display in logs."""
         try:
             # This creates a socket that doesn't actually connect
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -493,11 +513,11 @@ class BackCameraStreamer:
         # Start camera thread
         self.time_to_exit = False
         self.camera_thread = threading.Thread(target=self.camera_reader)
-        self.camera_thread.daemon = True  # Make thread a daemon so it exits when main thread exits
+        self.camera_thread.daemon = True
         self.camera_thread.start()
         logging.info("Camera streaming started")
 
-        # --- Check Vehicle State and Set Mode to MANUAL (moved from run) ---
+        # Check Vehicle State and Set Mode to MANUAL
         if not self.connection:
             logging.error("MAVLink connection not established before state check.")
             return False
@@ -512,7 +532,6 @@ class BackCameraStreamer:
 
                 if not is_armed:
                     logging.error("Vehicle is DISARMED after connect. Please ARM first.")
-                    # Potentially return False or raise an error
                 else:
                     logging.info(f"Vehicle is ARMED in mode: {mode_name}")
 
@@ -526,7 +545,7 @@ class BackCameraStreamer:
                                 mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
                                 mode_id
                             )
-                            time.sleep(1) # Wait for mode change
+                            time.sleep(1)
                             msg_confirm = self.connection.recv_match(type='HEARTBEAT', blocking=True, timeout=2)
                             if msg_confirm:
                                 new_mode_id = msg_confirm.custom_mode
@@ -536,12 +555,8 @@ class BackCameraStreamer:
                                 logging.warning("Did not receive confirmation heartbeat after mode change attempt.")
                         else:
                             logging.error(f"Mode {target_mode} is not supported by this firmware.")
-                    else:
-                        logging.info(f"Vehicle already in {target_mode} mode.")
         except Exception as mode_ex:
             logging.error(f"Error during initial state check or mode set: {mode_ex}")
-
-        logging.warning("Ensure ARMING_CHECK is properly configured (recommended: 1).")
 
         # Start control loop thread
         self.control_thread = threading.Thread(target=self.control_loop)
@@ -550,9 +565,9 @@ class BackCameraStreamer:
         logging.info("Control loop started")
 
         return True
-    
+        
     def camera_reader(self):
-        """Main camera processing loop"""
+        """Main camera processing loop."""
         frames_processed = 0
         last_log_time = time.time()
         
@@ -568,23 +583,16 @@ class BackCameraStreamer:
                 if self.enable_depth and self.depth_stream:
                     depth_frame = frames.get_depth_frame()
                     if depth_frame:
-                        # Apply filters
                         filtered_frame = self._filter_depth_frame(depth_frame)
-                        # Colorize depth frame
                         depth_colormap = np.asanyarray(self.colorizer.colorize(filtered_frame).get_data())
-                        # Convert to RGBA
                         colorized_frame = cv2.cvtColor(depth_colormap, cv2.COLOR_BGR2RGBA)
-                        # Add to RTSP buffer
                         self.depth_stream.add_to_buffer(colorized_frame)
                 
                 # Process color frame if color streaming is enabled
                 if self.enable_color and self.video_stream:
                     color_frame = frames.get_color_frame()
                     if color_frame:
-                        # Get RGBA image (original format)
                         color_image_rgba = np.asanyarray(color_frame.get_data())
-                        
-                        # Convert to Grayscale for detection
                         gray_image = cv2.cvtColor(color_image_rgba, cv2.COLOR_RGBA2GRAY)
                         
                         # Detect markers
@@ -592,74 +600,76 @@ class BackCameraStreamer:
                             gray_image, self.aruco_dict, parameters=self.aruco_params
                         )
                         
-                        # Draw rectangles around detected markers
-                        if ids is not None:
-                            logging.info(f"Detected marker IDs: {ids.flatten().tolist()}")
-                            for i, marker_id in enumerate(ids):
-                                marker_corners = corners[i].reshape((4, 2))
-                                pts = np.array(marker_corners, np.int32).reshape((-1, 1, 2))
-                                
-                                if marker_id == self.target_marker_id:
-                                    # Draw green rectangle for the target marker
-                                    cv2.polylines(color_image_rgba, [pts], True, (0, 255, 0, 255), 2) # Green
-                                    logging.debug(f"Detected target marker ID {self.target_marker_id}")
-                                    # --- Optional: Estimate Pose --- 
-                                    if self.camera_matrix is not None and self.dist_coeffs is not None:
-                                        rvec, tvec, _ = aruco.estimatePoseSingleMarkers(
-                                            corners[i], self.marker_size_m, self.camera_matrix, self.dist_coeffs
-                                        )
-                                        # Draw axis
-                                        cv2.drawFrameAxes(color_image_rgba, self.camera_matrix, self.dist_coeffs, rvec, tvec, self.marker_size_m * 0.5)
-                                        # Log distance (tvec[0][0][2] is the Z distance)
-                                        distance_m = tvec[0][0][2]
-                                        # Update shared state
-                                        with self.control_lock:
-                                            self.target_marker_detected = True
-                                            self.estimated_distance_m = distance_m
-                                        logging.debug(f"Target marker {marker_id} pose: Dist={distance_m:.3f} m") # Debug level for distance
-                                        # Break if target found
-                                        break
-                                else:
-                                    # Draw blue rectangle for other detected markers
-                                    cv2.polylines(color_image_rgba, [pts], True, (255, 0, 0, 255), 1) # Blue
-                            # If target wasn't found in the loop, update state
-                            if not self.target_marker_detected:
-                                with self.control_lock:
-                                    self.estimated_distance_m = None # No valid distance if target not seen
-                        else:
-                            # No markers detected at all
-                            with self.control_lock:
-                                self.target_marker_detected = False
-                                self.estimated_distance_m = None
-                            logging.debug("No markers detected in this frame.")
+                        # Process detected markers
+                        self._process_detected_markers(color_image_rgba, corners, ids)
                         
                         # Add the potentially modified RGBA frame to the RTSP buffer
                         self.video_stream.add_to_buffer(color_image_rgba)
                 
-                # Log frame rate periodically
-                current_time = time.time()
-                if current_time - last_log_time > 10:  # Log every 10 seconds
-                    if current_time > last_log_time: # Avoid division by zero
-                        fps = frames_processed / (current_time - last_log_time)
-                        logging.info(f"Camera processing {fps:.2f} fps")
-                    frames_processed = 0
-                    last_log_time = current_time
-                
             except rs.error as e:
-                 # Handle potential Realsense errors (e.g., frame drops)
-                 logging.warning(f"Realsense error: {e}")
-                 time.sleep(0.01)
+                self.log("WARNING", f"Realsense error: {e}")
+                time.sleep(0.01)
             except Exception as e:
-                logging.error(f"Error while reading camera: {e}")
-                logging.error(traceback.format_exc()) # Log full traceback
+                self.log("ERROR", f"Error while reading camera: {e}")
+                logging.error(traceback.format_exc())
                 # Reset detection state on error
                 with self.control_lock:
                     self.target_marker_detected = False
                     self.estimated_distance_m = None
+                    self.estimated_horizontal_error = None
                 time.sleep(0.1)
     
+    def _process_detected_markers(self, color_image_rgba, corners, ids):
+        """Process detected ArUco markers in the image."""
+        target_found = False
+        
+        if ids is not None:
+            for i, marker_id in enumerate(ids):
+                marker_corners = corners[i].reshape((4, 2))
+                pts = np.array(marker_corners, np.int32).reshape((-1, 1, 2))
+                
+                if marker_id == self.target_marker_id:
+                    # Draw green rectangle for the target marker
+                    cv2.polylines(color_image_rgba, [pts], True, (0, 255, 0, 255), 2) # Green
+                    target_found = True
+                    
+                    # Estimate Pose if intrinsics are available
+                    if self.camera_matrix is not None and self.dist_coeffs is not None:
+                        rvec, tvec, _ = aruco.estimatePoseSingleMarkers(
+                            corners[i], self.marker_size_m, self.camera_matrix, self.dist_coeffs
+                        )
+                        # Draw axis
+                        cv2.drawFrameAxes(color_image_rgba, self.camera_matrix, self.dist_coeffs, rvec, tvec, self.marker_size_m * 0.5)
+                        # Log distance (tvec[0][0][2] is the Z distance)
+                        distance_m = tvec[0][0][2]
+                        # Update shared state
+                        with self.control_lock:
+                            self.target_marker_detected = True
+                            self.estimated_distance_m = distance_m
+                            # Calculate horizontal error
+                            cx = np.mean(corners[i][0][:, 0]) # Avg X coordinate of corners
+                            self.estimated_horizontal_error = (cx - (self.color_width / 2)) / (self.color_width / 2)
+                            
+                            # Update which side the marker is on
+                            if self.estimated_horizontal_error < 0:
+                                self.last_marker_side = 'left'
+                            else:
+                                self.last_marker_side = 'right'
+                        break
+                else:
+                    # Draw blue rectangle for other detected markers
+                    cv2.polylines(color_image_rgba, [pts], True, (255, 0, 0, 255), 1) # Blue
+        
+        # Update detection state if target wasn't found
+        if not target_found:
+            with self.control_lock:
+                self.target_marker_detected = False
+                self.estimated_distance_m = None
+                self.estimated_horizontal_error = None
+                # Note: we do NOT reset last_marker_side here, as we want to remember where it was
+    
     def stop(self):
-        """Stop all processing and clean up resources"""
+        """Stop all processing and clean up resources."""
         self.time_to_exit = True
         logging.info("Stopping camera and RTSP server...")
         
@@ -689,41 +699,37 @@ class BackCameraStreamer:
         # Stop MAVLink connection and release override
         if self.connection:
             try:
-                logging.info("Sending final neutral RC command and releasing override.")
-                if self.neutral_cmd and self.release_cmd:
-                    self.send_rc_override_command(self.neutral_cmd)
-                    time.sleep(0.1)
-                    self.send_rc_override_command(self.release_cmd)
-                    time.sleep(0.1)
-                else:
-                    logging.warning("RC commands not prepared, cannot send final commands.")
+                # Send final stop command using manual control
+                self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                time.sleep(0.2)
             except Exception as final_e:
-                logging.warning(f"Error sending final RC override commands: {final_e}")
+                logging.warning(f"Error sending final stop command: {final_e}")
             finally:
                 logging.info("Closing MAVLink connection.")
                 self.connection.close()
     
     def exit_handler(self, sig, frame):
+        """Handle exit signals gracefully."""
         logging.info(f"Caught signal {sig}, shutting down...")
         self.stop()
         sys.exit(0)
-    
+                
     def run(self):
-        """Main function to start the back camera streamer"""
-        logging.info("Starting Back Camera RTSP Streamer with ArUco Detection")
+        """Main function to start the back camera streamer."""
+        self.log("INFO", "Starting Back Camera RTSP Streamer with ArUco Detection", self.STATE_SEARCHING)
         
         # Find device
         if not self.find_device():
-            logging.error("Failed to find a compatible RealSense device. Exiting.")
+            self.log("ERROR", "Failed to find a compatible RealSense device. Exiting.", self.STATE_SEARCHING)
             return False
         
         # Configure advanced settings if enabled
         if self.use_preset:
             if self.configure_advanced_settings():
-                logging.info("Advanced settings applied")
+                self.log("INFO", "Advanced settings applied", self.STATE_SEARCHING)
         
         # Connect to MAVLink FIRST
-        logging.info("Connecting to MAVLink...")
+        self.log("INFO", "Connecting to MAVLink...", self.STATE_SEARCHING)
         try:
             extra_kwargs = {}
             if 'udp' in self.mavlink_connect_str or 'tcp' in self.mavlink_connect_str:
@@ -734,164 +740,320 @@ class BackCameraStreamer:
             self.connection.wait_heartbeat(timeout=10)
             if self.connection.target_system == 0:
                 raise ConnectionError("Heartbeat not received. Check MAVLink connection & baud rate.")
-            logging.info(f"MAVLink connected to system {self.connection.target_system}")
+            self.log("INFO", f"MAVLink connected to system {self.connection.target_system}", self.STATE_SEARCHING)
         except Exception as mav_ex:
-            logging.error(f"Failed to establish MAVLink connection: {mav_ex}")
-            # No need to stop camera pipe yet as it hasn't started
+            self.log("ERROR", f"Failed to establish MAVLink connection: {mav_ex}", self.STATE_SEARCHING)
             return False
         
         # Connect to camera
         if not self.connect():
-            logging.error("Failed to connect to camera. Exiting.")
-            if self.connection: self.connection.close() # Close MAVLink if camera fails
+            self.log("ERROR", "Failed to connect to camera. Exiting.", self.STATE_SEARCHING)
+            if self.connection: self.connection.close()
             return False
         
         # Setup RTSP streaming
         if not self.setup_rtsp():
-            logging.error("Failed to setup RTSP streaming. Exiting.")
+            self.log("ERROR", "Failed to setup RTSP streaming. Exiting.", self.STATE_SEARCHING)
             if self.pipe: self.pipe.stop()
             if self.connection: self.connection.close()
             return False
         
-        # Prepare RC Commands
-        logging.info("Preparing RC commands...")
-        self.neutral_cmd = [0] * NUM_CHANNELS
-        self.neutral_cmd[THROTTLE_CHAN_IDX] = NEUTRAL_THROTTLE_PWM
-        self.neutral_cmd[STEERING_CHAN_IDX] = STEERING_PWM
-        self.backward_cmd = list(self.neutral_cmd)
-        self.backward_cmd[THROTTLE_CHAN_IDX] = BACKWARD_PWM
-        self.release_cmd = [0] * NUM_CHANNELS
-        logging.info("RC commands prepared.")
-
         # Start streaming and control threads
         if not self.start_streaming_and_control():
-            logging.error("Failed to start streaming. Exiting.")
+            self.log("ERROR", "Failed to start streaming. Exiting.", self.STATE_SEARCHING)
             self.pipe.stop()
             if self.connection: self.connection.close()
             return False
         
-        logging.info("Back camera streaming and control successfully started")
+        self.log("INFO", "Back camera streaming and control successfully started", self.STATE_SEARCHING)
         return True
 
-    # MAVLink Helper Function (integrated)
-    def send_rc_override_command(self, channels):
-        """Sends an RC_CHANNELS_OVERRIDE command."""
+    def send_manual_control_command(self, throttle_z, steering_y):
+        """Sends a MANUAL_CONTROL command (using y for steering, z for throttle)."""
         if not self.connection:
-            logging.warning("Cannot send RC override command, MAVLink not connected.")
+            logging.warning("Cannot send manual control command, MAVLink not connected.")
             return
 
-        rc_values = list(channels) + [0] * (NUM_CHANNELS - len(channels))
         try:
-            self.connection.mav.rc_channels_override_send(
+            self.connection.mav.manual_control_send(
                 self.connection.target_system,
-                self.connection.target_component,
-                *rc_values
+                0,                  # x: pitch (usually ignored)
+                int(steering_y),    # y: roll/steering
+                int(throttle_z),    # z: throttle
+                0,                  # r: yaw (usually ignored if y is steering)
+                0                   # buttons bitmask
             )
-            # Log significant commands
-            if channels[THROTTLE_CHAN_IDX] != NEUTRAL_THROTTLE_PWM:
-                logging.debug(f"Sent RC Override: Thr={channels[THROTTLE_CHAN_IDX]}, Steer={channels[STEERING_CHAN_IDX]}")
-            elif channels[THROTTLE_CHAN_IDX] == 0 and channels[STEERING_CHAN_IDX] == 0:
-                logging.debug(f"Sent RC Override Release (all zeros)")
-
         except Exception as e:
-            logging.error(f"Error sending rc_channels_override command: {e}")
+            logging.error(f"Error sending manual_control command: {e}")
 
-    # Control Loop Implementation
+    def log(self, level, message, current_state=None):
+        """Custom logging method that includes the current state."""
+        state_names = {
+            self.STATE_SEARCHING: "SEARCHING",
+            self.STATE_APPROACHING: "APPROACHING",
+            self.STATE_DONE: "DONE"
+        }
+        
+        # Use provided state or get it from instance
+        if current_state is None:
+            if hasattr(self, 'current_state'):
+                current_state = self.current_state
+            else:
+                current_state = None
+        
+        state_str = f"[{state_names.get(current_state, 'UNKNOWN')}] "
+        
+        if level == "INFO":
+            logging.info(f"{state_str}{message}")
+        elif level == "WARNING":
+            logging.warning(f"{state_str}{message}")
+        elif level == "ERROR":
+            logging.error(f"{state_str}{message}")
+        elif level == "DEBUG":
+            logging.debug(f"{state_str}{message}")
+        else:
+            logging.info(f"{state_str}{message}")
+
     def control_loop(self):
-        """Runs the docking control logic using continuous RC_CHANNELS_OVERRIDE."""
-        log_msg = f"Continuous control loop starting. Target: {TARGET_DISTANCE_M:.2f}m, PWM: {BACKWARD_PWM}\n"
-        logging.info(log_msg)
-        is_moving = False # State variable
-        last_command_resend_time = 0 # Track time for resending commands
+        """Runs the docking/search control logic using manual_control_send."""
+        self.log("INFO", f"Control loop starting. Target: {TARGET_DISTANCE_M:.2f}m", self.STATE_SEARCHING)
+        is_moving = False
+        self.current_state = self.STATE_SEARCHING  # Store current state as instance variable
+        current_state = self.current_state
+        last_action_desc = ""
+        
+        # Add state names for clearer logging
+        state_names = {
+            self.STATE_SEARCHING: "SEARCHING",
+            self.STATE_APPROACHING: "APPROACHING",
+            self.STATE_DONE: "DONE"
+        }
+        
+        # Log initial state
+        self.log("INFO", "="*50)
+        self.log("INFO", f"INITIAL STATE: {state_names[current_state]}")
+        self.log("INFO", "="*50)
+        
+        # Track search iterations
+        search_rotations = 0
 
         while not self.time_to_exit:
             try:
+                # Initialize command variables for this iteration
+                current_action_desc = ""
+                target_steering_value = NEUTRAL_STEER_VALUE 
+                throttle_command = NEUTRAL_THROTTLE_VALUE
+                steering_command = NEUTRAL_STEER_VALUE
+
                 # Read shared state under lock
                 with self.control_lock:
                     target_detected = self.target_marker_detected
                     distance_m = self.estimated_distance_m
+                    horizontal_error = self.estimated_horizontal_error
+                
+                # Log detection info at regular intervals
+                if target_detected:
+                    self.log("INFO", f"Marker detected: distance={distance_m:.3f}m, horizontal_error={horizontal_error:.3f}")
+                
+                # State Machine Logic
+                if current_state == self.STATE_SEARCHING:
+                    prev_state = current_state
+                    # Pass search_rotations to _handle_searching_state and get back updated count
+                    current_state, is_moving, search_rotations = self._handle_searching_state(
+                        target_detected, is_moving, current_state, last_action_desc, search_rotations)
+                    
+                    # Update instance variable
+                    self.current_state = current_state
+                    
+                    # Log state transition
+                    if current_state != prev_state:
+                        self.log("INFO", "="*50)
+                        self.log("INFO", f"STATE CHANGE: {state_names[prev_state]} -> {state_names[current_state]}")
+                        self.log("INFO", "="*50)
+                    continue
 
-                # Control Logic
-                if target_detected and distance_m is not None:
-                    if distance_m > TARGET_DISTANCE_M:
-                        if not is_moving:
-                            logging.info(f"Target detected, moving backward (Dist: {distance_m:.3f}m > {TARGET_DISTANCE_M:.2f}m)")
-                            self.send_rc_override_command(self.backward_cmd)
-                            is_moving = True
-                        else:
-                            # Already moving, just log debug
-                            logging.debug(f"Continuing backward movement (Dist: {distance_m:.3f}m)")
-                            # Periodically resend backward command to maintain override
-                            current_time = time.time()
-                            if current_time - last_command_resend_time > COMMAND_RESEND_INTERVAL_S:
-                                logging.debug("Resending backward command to maintain override.")
-                                self.send_rc_override_command(self.backward_cmd)
-                                last_command_resend_time = current_time
+                elif current_state == self.STATE_APPROACHING:
+                    prev_state = current_state
+                    current_state, is_moving, current_action_desc = self._handle_approaching_state(
+                        target_detected, distance_m, is_moving, current_state, current_action_desc, last_action_desc
+                    )
+                    
+                    # Update instance variable
+                    self.current_state = current_state
+                    
+                    # Log state transitions
+                    if current_state != prev_state:
+                        self.log("INFO", "="*50)
+                        self.log("INFO", f"STATE CHANGE: {state_names[prev_state]} -> {state_names[current_state]}")
+                        self.log("INFO", "="*50)
+                        # Reset search rotations when changing from approaching to searching
+                        if current_state == self.STATE_SEARCHING:
+                            search_rotations = 0
+                            
+                    # Skip sending commands here as they're now sent inside _handle_approaching_state
+                    if current_state == self.STATE_APPROACHING:
+                        continue
 
-                    else:
-                        # Target detected, distance reached or too close -> Stop
-                        if is_moving:
-                            logging.info(f"Target distance reached or passed (Dist: {distance_m:.3f}m). Stopping.")
-                            self.send_rc_override_command(self.neutral_cmd)
-                            is_moving = False
-                        else:
-                             # Already stopped, just log debug
-                             logging.debug("Maintaining stop at target distance.")
-                             # Periodically resend neutral command to maintain stop
-                             current_time = time.time()
-                             if current_time - last_command_resend_time > COMMAND_RESEND_INTERVAL_S:
-                                 logging.debug("Resending neutral command to maintain stop.")
-                                 self.send_rc_override_command(self.neutral_cmd)
-                                 last_command_resend_time = current_time
-
-                else:
-                    # Target lost -> Stop
+                elif current_state == self.STATE_DONE:
+                    current_action_desc = "Docking complete. Maintaining position."
+                    if current_action_desc != last_action_desc:
+                         self.log("INFO", current_action_desc)
+                         last_action_desc = current_action_desc
                     if is_moving:
-                        logging.info(f"Target lost. Stopping.")
-                        self.send_rc_override_command(self.neutral_cmd)
-                        is_moving = False
-                    else:
-                        # Already stopped, just log debug
-                        logging.debug("Maintaining stop due to lost target.")
-                        # Periodically resend neutral command to maintain stop
-                        current_time = time.time()
-                        if current_time - last_command_resend_time > COMMAND_RESEND_INTERVAL_S:
-                            logging.debug("Resending neutral command to maintain stop.")
-                            self.send_rc_override_command(self.neutral_cmd)
-                            last_command_resend_time = current_time
+                         self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                         is_moving = False
 
-                # Control loop rate
+                # Send calculated throttle/steering for non-approaching states
+                if current_state != self.STATE_APPROACHING:
+                    # Log only if the action description has changed
+                    if current_action_desc and current_action_desc != last_action_desc:
+                        self.log("INFO", current_action_desc)
+                        last_action_desc = current_action_desc
+
+                    self.send_manual_control_command(throttle_z=throttle_command, steering_y=steering_command)
+
                 time.sleep(1.0 / CONTROL_LOOP_RATE_HZ)
 
             except Exception as e:
-                logging.error(f"Error in control_loop: {e}")
+                self.log("ERROR", f"Error in control_loop: {e}")
                 logging.error(traceback.format_exc())
-                # Ensure stop command is sent on error
                 try:
-                    logging.info("Sending STOP command due to control loop error.")
-                    # Set is_moving false on error to ensure stop logic triggers if loop continues
+                    self.log("INFO", "Sending STOP command due to control loop error.")
                     is_moving = False 
-                    if self.connection and self.neutral_cmd:
-                        self.send_rc_override_command(self.neutral_cmd)
+                    if self.connection:
+                        self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
                 except Exception as stop_e:
-                    logging.error(f"Failed to send stop command after error: {stop_e}")
-                # Pause briefly after an error before retrying
+                    self.log("ERROR", f"Failed to send stop command after error: {stop_e}")
                 time.sleep(0.5)
 
-        logging.info("Control loop finished.")
+        self.log("INFO", "Control loop finished.")
+    
+    def _handle_searching_state(self, target_detected, is_moving, current_state, last_action_desc, search_rotations=0):
+        """Handle the searching state in the control loop."""
+        if target_detected:
+            # Marker found while searching
+            self.log("INFO", "Marker found during search. Switching to Approach.")
+            self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+            is_moving = False
+            current_state = self.STATE_APPROACHING
+            time.sleep(0.1)
+            return current_state, is_moving, search_rotations
+        else:
+            # Target still lost -> Perform Search Rotation Step
+            # Increment rotation counter
+            search_rotations += 1
+            
+            # Determine rotation direction based on last known marker position
+            steer_value = LEFT_STEER_VALUE  # Default direction (counter-clockwise/left)
+            
+            with self.control_lock:
+                if self.last_marker_side == 'right':
+                    steer_value = RIGHT_STEER_VALUE
+                    self.log("INFO", f"Search rotation #{search_rotations}: Target was last seen on the right. Rotating right.")
+                else:
+                    self.log("INFO", f"Search rotation #{search_rotations}: Target was last seen on the left or center. Rotating left.")
+            
+            start_rotate_time = time.time()
+            marker_found_during_rotation = False
+            
+            self.log("INFO", f"Starting rotation #{search_rotations} for {SEARCH_STEP_DURATION_S:.1f} seconds with steer value {steer_value}")
+            
+            while time.time() < start_rotate_time + SEARCH_STEP_DURATION_S and not self.time_to_exit:
+                self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=steer_value)
+                time.sleep(1.0 / CONTROL_LOOP_RATE_HZ)
 
+                # Check if marker found by camera thread mid-rotation
+                with self.control_lock:
+                    if self.target_marker_detected:
+                        self.log("INFO", f"Marker found during rotation #{search_rotations}!")
+                        marker_found_during_rotation = True
+                        break
+
+            # Always stop rotation after the loop
+            self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+            is_moving = False
+            self.log("INFO", f"Rotation #{search_rotations} complete, stopping rotation")
+
+            # Pause if marker wasn't found during rotation
+            if not marker_found_during_rotation:
+                self.log("INFO", f"Marker not found after rotation #{search_rotations}, pausing for {SEARCH_PAUSE_DURATION_S:.1f} seconds before next rotation")
+                time.sleep(SEARCH_PAUSE_DURATION_S)
+            else:
+                time.sleep(0.1)
+            
+            return current_state, is_moving, search_rotations
+
+    def _handle_approaching_state(self, target_detected, distance_m, is_moving, current_state, 
+                                current_action_desc, last_action_desc):
+        """Handle the approaching state in the control loop."""
+        if not target_detected:
+            # Marker lost during approach
+            current_action_desc = "Marker lost during approach. Returning to Search."
+            self.log("INFO", "Marker lost during approach. Switching to SEARCHING state.")
+            if is_moving:
+                self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                is_moving = False
+            current_state = self.STATE_SEARCHING
+            time.sleep(0.1)
+        elif distance_m is not None:
+            # Marker still detected, continue or finish approach
+            if distance_m > TARGET_DISTANCE_M:
+                # Get horizontal error for steering adjustment
+                with self.control_lock:
+                    horizontal_error = self.estimated_horizontal_error
+                
+                # Calculate steering adjustment based on horizontal error
+                steering_command = int(horizontal_error * STEERING_GAIN * MAX_STEERING_VALUE)
+                steering_command = max(MIN_STEERING_VALUE, min(MAX_STEERING_VALUE, steering_command))
+                
+                # Apply minimum steering threshold if value is non-zero
+                if 0 < abs(steering_command) < MIN_STEERING_THRESHOLD:
+                    steering_command = MIN_STEERING_THRESHOLD if steering_command > 0 else -MIN_STEERING_THRESHOLD
+                
+                # Continue Backward Approach with steering adjustment
+                current_action_desc = f"Approaching (Dist: {distance_m:.3f}m > Target: {TARGET_DISTANCE_M:.2f}m, Steering: {steering_command})"
+                if current_action_desc != last_action_desc:
+                    self.log("INFO", current_action_desc)
+                    last_action_desc = current_action_desc
+                # Continue backward movement with steering correction
+                is_moving = True
+                # Apply the commands
+                self.log("DEBUG", f"Sending commands: backward={BACKWARD_THROTTLE_VALUE}, steering={steering_command}")
+                self.send_manual_control_command(throttle_z=BACKWARD_THROTTLE_VALUE, steering_y=steering_command)
+            else:
+                # Target Reached
+                current_action_desc = f"Target distance reached (Dist: {distance_m:.3f}m). Stopping."
+                self.log("INFO", f"TARGET REACHED! Distance: {distance_m:.3f}m ≤ {TARGET_DISTANCE_M:.2f}m - Switching to DONE state")
+                if current_action_desc != last_action_desc:
+                    self.log("INFO", current_action_desc)
+                    last_action_desc = current_action_desc
+                if is_moving:
+                    self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                    is_moving = False
+                current_state = self.STATE_DONE
+        else:
+            # Target detected but distance is None
+            self.log("WARNING", "Target detected but distance is None. Stopping.")
+            if is_moving:
+                self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                is_moving = False
+        
+        return current_state, is_moving, current_action_desc
+
+# --- Main Execution ---
 if __name__ == "__main__":
     print("=" * 80)
     print("Back Camera RTSP Streamer with ArUco Detection")
     print("=" * 80)
-    # Create the streamer object first to parse args and access defaults
+    
     streamer = BackCameraStreamer()
     print(f"Default camera serial: {streamer.serial_number}")
     print(f"MAVLink: {streamer.mavlink_connect_str} @ {streamer.mavlink_baudrate} baud")
     print("Using ArUco Dictionary: DICT_4X4_250")
     print(f"Target ArUco marker ID: {streamer.target_marker_id} (Green Rectangle)")
     print(f"Target Distance: {TARGET_DISTANCE_M:.2f} m")
-    print(f"Backward PWM Step: {BACKWARD_PWM} (RC Override Value)")
+    print(f"Backward Throttle: {BACKWARD_THROTTLE_VALUE} (Manual Control)")
+    print(f"Left Rotation: {LEFT_STEER_VALUE}, Right Rotation: {RIGHT_STEER_VALUE} (Manual Control)")
     print("Detecting other ArUco markers (Blue Rectangle)")
     print("Run with --help for more options")
     print("=" * 80)
@@ -899,7 +1061,6 @@ if __name__ == "__main__":
     if streamer.run():
         try:
             logging.info("Server running. Press Ctrl+C to exit.")
-            # Keep main thread alive
             while not streamer.time_to_exit:
                 time.sleep(1)
         except KeyboardInterrupt:
