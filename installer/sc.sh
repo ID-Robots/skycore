@@ -1113,8 +1113,16 @@ boot_mmc() {
     EXTLINUX_CFG="/mnt/mmc/boot/extlinux/extlinux.conf"
 
     if [ -f "$EXTLINUX_CFG" ]; then
+        # Change the root device
         sudo sed -i 's|root=/dev/nvme0n1p1|root=/dev/mmcblk0p1|g' "$EXTLINUX_CFG"
+        
+        # Add the kernel parameters if not already present
+        if ! grep -q "pci=nomsi" "$EXTLINUX_CFG"; then
+            sudo sed -i '/^[[:space:]]*APPEND/ s/$/ pci=nomsi pcie_aspm=off/' "$EXTLINUX_CFG"
+        fi
+        
         echo -e "${GREEN}[✔]${NC} Updated $EXTLINUX_CFG to use /dev/mmcblk0p1 as the root device."
+        echo -e "${GREEN}[✔]${NC} Added NVMe optimization parameters: pci=nomsi pcie_aspm=off"
         sudo umount /mnt/mmc
         echo -e "${GREEN}[✔]${NC} The system will now boot from SD card on next reboot."
     else
@@ -1129,8 +1137,16 @@ boot_nvme() {
     echo -e "${YELLOW}[⋯]${NC} Configuring system to boot from NVMe drive..."
     
     if [ -f /boot/extlinux/extlinux.conf ]; then
+        # First change the root device
         sudo sed -i 's|root=/dev/mmcblk0p1|root=/dev/nvme0n1p1|g' /boot/extlinux/extlinux.conf
+        
+        # Then add the kernel parameters if not already present
+        if ! grep -q "pci=nomsi" /boot/extlinux/extlinux.conf; then
+            sudo sed -i '/^[[:space:]]*APPEND/ s/$/ pci=nomsi pcie_aspm=off/' /boot/extlinux/extlinux.conf
+        fi
+        
         echo -e "${GREEN}[✔]${NC} Updated root device to /dev/nvme0n1p1 in /boot/extlinux/extlinux.conf."
+        echo -e "${GREEN}[✔]${NC} Added NVMe optimization parameters: pci=nomsi pcie_aspm=off"
         echo -e "${GREEN}[✔]${NC} The system will now boot from NVMe drive on next reboot."
     else
         echo -e "${RED}[✖]${NC} Error: extlinux.conf not found in /boot/extlinux/"
