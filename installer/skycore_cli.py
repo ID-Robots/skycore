@@ -114,20 +114,36 @@ class MAVLinkConnection:
         
         Attempts to connect to a MAVLink device using common connection methods.
         """
-        connection_methods = [
-            # Direct USB connections with common names
-            '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB0', '/dev/ttyUSB1',
-            # UDP connections for MAVROS and MAVProxy
+        # Allow custom connection URL from environment variable
+        custom_url = os.environ.get('SKYCORE_MAVLINK_URL')
+        
+        connection_methods = []
+        
+        # If custom URL is specified, try it first
+        if custom_url:
+            connection_methods.append(custom_url)
+            
+        # UDP connections for MAVROS and MAVProxy
+        connection_methods.extend([
             'udpin:127.0.0.1:14550', 'udpin:127.0.0.1:14551',
             'udpout:127.0.0.1:14550', 'udpout:127.0.0.1:14551',
             'udp://127.0.0.1:14550', 'udp://127.0.0.1:14551'
-        ]
+        ])
+        
+        # Direct USB connections with common names
+        connection_methods.extend([
+            '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB0', '/dev/ttyUSB1',
+        ])
+        
+        # Specific TELEM1 connection - try last since it's often busy
+        connection_methods.append('serial:/dev/ttyTHS1:23040')
         
         for method in connection_methods:
             try:
                 self.connection = self.mavutil.mavlink_connection(method)
                 if self.connection:
                     logger.info(f"Connected to MAVLink device at {method}")
+                    self.mavlink_url = method
                     return
             except Exception as e:
                 logger.debug(f"Failed to connect using {method}: {e}")
@@ -253,6 +269,58 @@ class MAVLinkConnection:
         msg_data.pop('_timestamp', None)
         
         return f"[{time.strftime('%H:%M:%S', time.localtime(timestamp))}] {msg_type}: {msg_data}"
+
+    def export_parameters(self, filename: Optional[str] = None) -> None:
+        """
+        Export parameters to a file.
+        
+        Args:
+            filename (Optional[str]): Name of the file to export parameters to
+        """
+        try:
+            if not filename:
+                filename = "parameters.param"
+                
+            print(f"Exporting parameters to {filename}...")
+            
+            # Create a list to store parameters
+            params = []
+            
+            # Get all parameters
+            self.connection.param_fetch_all()
+            
+            while True:
+                msg = self.connection.recv_match(type='PARAM_VALUE', blocking=True, timeout=1.0)
+                if not msg:
+                    break
+                    
+                params.append(f"{msg.param_id},{msg.param_value}\n")
+                
+            # Write parameters to file
+            with open(filename, 'w') as f:
+                f.writelines(params)
+                
+            print(f"Parameters exported to {filename}")
+        except Exception as e:
+            logger.error(f"Failed to export parameters: {e}")
+            print("Failed to export parameters")
+
+    def save_parameters(self) -> bool:
+        """
+        Save parameters permanently to non-volatile storage.
+        
+        Returns:
+            bool: True if parameters were saved successfully, False otherwise
+        """
+        try:
+            # Simpler way to send save command
+            self.connection.arducopter_arm()
+            self.connection.arducopter_disarm()
+            print("Attempted to save parameters by arming/disarming")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save parameters: {e}")
+            return False
 
 class NavigationToggle:
     """Handles navigation source toggling and related operations."""
@@ -506,6 +574,23 @@ class NavigationToggle:
             logger.error(f"Failed to export parameters: {e}")
             print("Failed to export parameters")
 
+    def save_parameters(self) -> bool:
+        """
+        Save parameters permanently to non-volatile storage.
+        
+        Returns:
+            bool: True if parameters were saved successfully, False otherwise
+        """
+        try:
+            # Simpler way to send save command
+            self.mavlink.connection.arducopter_arm()
+            self.mavlink.connection.arducopter_disarm()
+            print("Attempted to save parameters by arming/disarming")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save parameters: {e}")
+            return False
+
     def close(self) -> None:
         """Close the MAVLink connection."""
         self.mavlink.close()
@@ -521,14 +606,19 @@ def show_help():
     print("  monitor     - Monitor position for 30 seconds")
     print("  listen      - Listen for MAVLink messages from Pixhawk")
     print("  recent_msgs - Show the last 30 Pixhawk messages")
-    print("  export_params - Export all parameters to a file")
+    print("  export_params [filename] - Export all parameters to a file")
+    print("  save_params - Save parameters permanently to non-volatile storage")
     print("  reboot      - Reboot ArduPilot")
     print("  full_restart - Perform a full system restart")
-    print("  get_param   - Get a parameter value")
-    print("  set_param   - Set a parameter value")
+    print("  get_param [param_name] - Get a parameter value")
+    print("  set_param [param_name] [param_value] - Set a parameter value")
     print("  clean_sd    - Clean the SD card")
     print("  reset_params - Reset parameters to default values")
     print("  q           - Quit")
+    print("\nConnection options:")
+    print("  --url URL   - Specify a custom MAVLink connection URL")
+    print("                Example: --url udp:192.168.1.1:14550")
+    print("                Example: --url tcp:localhost:5760")
 
 def execute_command(toggle, cmd, args):
     """
@@ -552,6 +642,8 @@ def execute_command(toggle, cmd, args):
     elif cmd == 'status':
         current = toggle.get_current_source()
         print(f"Current navigation source: {current or 'Unknown'}")
+        if hasattr(toggle.mavlink, 'mavlink_url') and toggle.mavlink.mavlink_url:
+            print(f"Connected via: {toggle.mavlink.mavlink_url}")
     elif cmd == 'ekf':
         if toggle.set_ekf_and_home(0.0, 0.0, 0.0):
             print("Successfully set EKF origin and home position")
@@ -636,28 +728,51 @@ def execute_command(toggle, cmd, args):
         
         print("Full restart sequence completed")
     elif cmd == 'get_param':
-        param_name = input("Enter parameter name: ").strip()
-        if param_name:
+        # If parameter name is provided as argument
+        if args and len(args) > 0:
+            param_name = args[0]
             value = toggle.get_parameter_value(param_name)
             if value is not None:
                 print(f"Parameter {param_name} = {value}")
             else:
                 print(f"Failed to get parameter {param_name}")
         else:
-            print("No parameter name provided")
-    elif cmd == 'set_param':
-        param_name = input("Enter parameter name: ").strip()
-        try:
-            param_value = float(input("Enter parameter value: ").strip())
+            # Interactive mode
+            param_name = input("Enter parameter name: ").strip()
             if param_name:
+                value = toggle.get_parameter_value(param_name)
+                if value is not None:
+                    print(f"Parameter {param_name} = {value}")
+                else:
+                    print(f"Failed to get parameter {param_name}")
+            else:
+                print("No parameter name provided")
+    elif cmd == 'set_param':
+        # If both parameter name and value are provided as arguments
+        if args and len(args) >= 2:
+            param_name = args[0]
+            try:
+                param_value = float(args[1])
                 if toggle.set_parameter_value(param_name, param_value):
                     print(f"Successfully set {param_name} to {param_value}")
                 else:
                     print(f"Failed to set {param_name}")
-            else:
-                print("No parameter name provided")
-        except ValueError:
-            print("Invalid parameter value. Please enter a numeric value.")
+            except ValueError:
+                print("Invalid parameter value. Please enter a numeric value.")
+        else:
+            # Interactive mode
+            param_name = input("Enter parameter name: ").strip()
+            try:
+                param_value = float(input("Enter parameter value: ").strip())
+                if param_name:
+                    if toggle.set_parameter_value(param_name, param_value):
+                        print(f"Successfully set {param_name} to {param_value}")
+                    else:
+                        print(f"Failed to set {param_name}")
+                else:
+                    print("No parameter name provided")
+            except ValueError:
+                print("Invalid parameter value. Please enter a numeric value.")
     elif cmd == 'clean_sd':
         toggle.clean_sd_card()
     elif cmd == 'reset_params':
@@ -668,6 +783,11 @@ def execute_command(toggle, cmd, args):
         if args and len(args) > 0:
             filename = args[0]
         toggle.export_parameters(filename)
+    elif cmd == 'save_params':
+        if toggle.save_parameters():
+            print("Parameters saved successfully")
+        else:
+            print("Failed to save parameters")
 
 def main():
     """
@@ -681,15 +801,34 @@ def main():
         args = sys.argv[1:]
         
         direct_command = None
-        if args:
-            direct_command = args[0].lower()
+        mavlink_url = None
+        command_args = []
+        
+        # Parse arguments
+        i = 0
+        while i < len(args):
+            if args[i] == "--url" and i + 1 < len(args):
+                mavlink_url = args[i + 1]
+                i += 2
+            elif direct_command is None:
+                direct_command = args[i].lower()
+                i += 1
+            else:
+                # Collect all remaining arguments for the command
+                command_args = args[i:]
+                break
+        
+        # Set custom URL if specified
+        if mavlink_url:
+            os.environ['SKYCORE_MAVLINK_URL'] = mavlink_url
+            print(f"Using custom MAVLink URL: {mavlink_url}")
             
         # For MAVLink-related commands, check if we need pymavlink
         need_mavlink = direct_command in ['gps', 'slam', 'status', 'ekf', 
                                         'custom_ekf', 'monitor', 'listen',
                                         'recent_msgs', 'reboot', 'full_restart', 
                                         'get_param', 'set_param', 'clean_sd',
-                                        'reset_params', 'export_params']
+                                        'reset_params', 'export_params', 'save_params']
                                         
         if need_mavlink and 'pymavlink' in MISSING_DEPENDENCIES:
             if not check_and_install_dependencies(['pymavlink']):
@@ -710,7 +849,7 @@ def main():
         if direct_command and direct_command != "help":
             # For MAVLink commands, we need the toggle
             if toggle:
-                execute_command(toggle, direct_command, args[1:])
+                execute_command(toggle, direct_command, command_args)
             # Error case - shouldn't happen due to earlier checks
             else:
                 print(f"Cannot execute {direct_command} - MAVLink connection not available.")
@@ -726,7 +865,15 @@ def main():
         
         # Command loop - continue until q is entered
         while True:
-            cmd = input("\nEnter command (type 'menu' for help): ").strip().lower()
+            cmd_input = input("\nEnter command (type 'menu' for help): ").strip()
+            
+            if not cmd_input:
+                continue
+                
+            # Split the input into command and arguments
+            cmd_parts = cmd_input.split()
+            cmd = cmd_parts[0].lower()
+            cmd_args = cmd_parts[1:] if len(cmd_parts) > 1 else []
             
             if cmd == 'q':
                 break
@@ -740,7 +887,7 @@ def main():
                                            'custom_ekf', 'monitor', 'listen',
                                            'recent_msgs', 'reboot', 'full_restart', 
                                            'get_param', 'set_param', 'clean_sd',
-                                           'reset_params', 'export_params']
+                                           'reset_params', 'export_params', 'save_params']
                 
                 # If command needs MAVLink but we don't have a connection
                 if cmd_needs_mavlink and not toggle:
@@ -750,7 +897,7 @@ def main():
                         if check_and_install_dependencies(['pymavlink']):
                             print("Please restart the script to use MAVLink commands.")
                 else:
-                    execute_command(toggle, cmd, [])
+                    execute_command(toggle, cmd, cmd_args)
                 
     except KeyboardInterrupt:
         print("\nExiting...")

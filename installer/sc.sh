@@ -957,7 +957,10 @@ install_skycore() {
     # Install dependencies
     echo -e "${YELLOW}[⋯]${NC} Installing required dependencies..."
     apt-get update -y
-    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq libxml2-dev libxslt1-dev python3-dev git
+    apt-get install -y python3-pip util-linux gawk coreutils parted e2fsprogs xz-utils partclone jq libxml2-dev libxslt1-dev python3-dev git \
+    gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    gstreamer1.0-alsa gstreamer1.0-libav gstreamer1.0-rtsp nvidia-l4t-gstreamer nvidia-l4t-multimedia \
+    nvidia-l4t-multimedia-utils nvidia-l4t-jetson-multimedia-api
 
     if [ "$FROM_S3" = true ]; then
         echo -e "${YELLOW}[⋯]${NC} Checking if AWS CLI is installed..."
@@ -986,6 +989,39 @@ install_skycore() {
     
     echo -e "${GREEN}[✔]${NC} skycore installed successfully at $INSTALL_PATH"
     echo -e "${GREEN}[✔]${NC} Created symlink at $SYMLINK_PATH"
+    
+    # Set up TTY rules automatically as part of installation
+    echo ""
+    echo -e "${YELLOW}[⋯]${NC} Setting up TTY device permission rules..."
+    
+    # Look for common TTY devices
+    TTY_DEVICES=$(find /dev -name "tty*" | grep -E 'ttyS|ttyTHS|ttyUSB|ttyACM' | head -1)
+    
+    if [ -n "$TTY_DEVICES" ]; then
+        # Use the first available TTY device
+        setup_tty_rules "$TTY_DEVICES"
+    else
+        # No devices found, create generic rules
+        echo -e "${YELLOW}[⋯]${NC} No TTY devices currently connected."
+        echo -e "${YELLOW}[⋯]${NC} Creating generic TTY permission rules..."
+        
+        RULE_FILE="/etc/udev/rules.d/99-tty-permissions.rules"
+        echo 'SUBSYSTEM=="tty", MODE="0666", GROUP="dialout"' > "$RULE_FILE"
+        echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="2341", MODE="0666", GROUP="dialout"' >> "$RULE_FILE"  # Arduino
+        echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="26ac", MODE="0666", GROUP="dialout"' >> "$RULE_FILE"  # Pixhawk/3DR
+        echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="10c4", MODE="0666", GROUP="dialout"' >> "$RULE_FILE"  # CP210x
+        echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0403", MODE="0666", GROUP="dialout"' >> "$RULE_FILE"  # FTDI
+        
+        echo -e "${GREEN}[✔]${NC} Generic rule file created at $RULE_FILE"
+        
+        # Reload rules
+        echo -e "${YELLOW}[⋯]${NC} Reloading udev rules..."
+        udevadm control --reload-rules
+        udevadm trigger
+        
+        echo -e "${GREEN}[✔]${NC} TTY permission rules have been set up with generic rules."
+        echo -e "${YELLOW}[⋯]${NC} Run 'skycore tty-setup <device>' after connecting devices for specific rules."
+    fi
 }
 
 # Function to start services listed in skycore.conf
@@ -1102,6 +1138,143 @@ boot_nvme() {
     fi
 }
 
+# Function to set up TTY device permission rules
+setup_tty_rules() {
+    check_root
+
+    echo -e "${YELLOW}[⋯]${NC} Setting up TTY device permission rules..."
+    
+    # Check if specific device path was provided
+    DEVICE_PATH="/dev/ttyUSB0"
+    if [[ $# -gt 0 ]]; then
+        DEVICE_PATH="$1"
+    fi
+    
+    # Check if device exists
+    if [ ! -e "$DEVICE_PATH" ]; then
+        echo -e "${RED}[✖]${NC} Device $DEVICE_PATH does not exist."
+        echo -e "${YELLOW}[⋯]${NC} Available TTY devices:"
+        find /dev -name "tty*" | grep -E 'ttyS|ttyTHS|ttyUSB|ttyACM'
+        echo -e "${YELLOW}[⋯]${NC} Please connect your device or specify a valid device path."
+        return 1
+    fi
+    
+    # Get vendor and product IDs
+    echo -e "${YELLOW}[⋯]${NC} Detecting vendor and product IDs for $DEVICE_PATH..."
+    VENDOR_ID=$(udevadm info -a -n "$DEVICE_PATH" | grep '{idVendor}' -m 1 | awk -F'"' '{print $2}')
+    PRODUCT_ID=$(udevadm info -a -n "$DEVICE_PATH" | grep '{idProduct}' -m 1 | awk -F'"' '{print $2}')
+    
+    if [ -z "$VENDOR_ID" ] || [ -z "$PRODUCT_ID" ]; then
+        echo -e "${RED}[✖]${NC} Could not detect vendor or product IDs."
+        echo -e "${YELLOW}[⋯]${NC} Creating generic rule for all TTY devices instead."
+        
+        RULE_FILE="/etc/udev/rules.d/99-tty-permissions.rules"
+        echo 'SUBSYSTEM=="tty", MODE="0666", GROUP="dialout"' > "$RULE_FILE"
+    else
+        echo -e "${GREEN}[✔]${NC} Detected: Vendor ID=$VENDOR_ID, Product ID=$PRODUCT_ID"
+        
+        # Create rule file
+        RULE_FILE="/etc/udev/rules.d/99-usb-permissions.rules"
+        echo "SUBSYSTEM==\"tty\", ATTRS{idVendor}==\"$VENDOR_ID\", ATTRS{idProduct}==\"$PRODUCT_ID\", MODE=\"0666\", GROUP=\"dialout\"" > "$RULE_FILE"
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Rule file created at $RULE_FILE"
+    
+    # Reload rules
+    echo -e "${YELLOW}[⋯]${NC} Reloading udev rules..."
+    udevadm control --reload-rules
+    udevadm trigger
+    
+    echo -e "${GREEN}[✔]${NC} TTY permission rules have been set up."
+    echo -e "${YELLOW}[⋯]${NC} Disconnect and reconnect your device for changes to take effect."
+}
+
+# Function to set up video streaming service
+setup_video_service() {
+    check_root
+
+    # Use absolute path instead of relative
+    SCRIPT_PATH="/home/skycore/video.sh"
+    TARGET_IP="${1:-192.168.144.25}"
+    TARGET_PORT="${2:-5010}"
+    
+    echo -e "${YELLOW}[⋯]${NC} Setting up video streaming service..."
+    echo -e "${YELLOW}[⋯]${NC} Using RTSP source: rtsp://${TARGET_IP}:8554/main.264"
+    echo -e "${YELLOW}[⋯]${NC} Streaming to UDP port: ${TARGET_PORT}"
+    
+    # Create the video script file
+    echo -e "${YELLOW}[⋯]${NC} Creating video script at $SCRIPT_PATH..."
+    
+    cat > "$SCRIPT_PATH" << EOF
+#!/bin/bash
+gst-launch-1.0 -e \\
+    rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
+    rtph264depay ! h264parse ! \\
+    nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \\
+    video/x-raw\\(memory:NVMM\\),format=NV12 ! \\
+    nvvidconv ! \\
+    video/x-raw,format=I420 ! \\
+    videorate max-rate=25 ! \\
+    x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \\
+    h264parse config-interval=1 ! \\
+    video/x-h264,stream-format=byte-stream,alignment=au ! \\
+    udpsink host=127.0.0.1 port=${TARGET_PORT} sync=false
+EOF
+
+    # Make script executable
+    chmod +x "$SCRIPT_PATH"
+    chown skycore:skycore "$SCRIPT_PATH"
+    
+    # Create systemd service file
+    SERVICE_FILE="/etc/systemd/system/skycore-video.service"
+    
+    echo -e "${YELLOW}[⋯]${NC} Creating systemd service file at $SERVICE_FILE..."
+    
+    cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=SkyCore Video Streaming Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$SCRIPT_PATH
+Restart=on-failure
+RestartSec=10
+User=skycore
+Group=skycore
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Reload systemd to recognize new service
+    echo -e "${YELLOW}[⋯]${NC} Reloading systemd..."
+    systemctl daemon-reload
+    
+    # Enable service to start on boot
+    echo -e "${YELLOW}[⋯]${NC} Enabling video service to start on boot..."
+    systemctl enable skycore-video.service
+    
+    # Start the service
+    echo -e "${YELLOW}[⋯]${NC} Starting video service..."
+    systemctl start skycore-video.service
+    
+    # Check service status
+    sleep 2
+    if systemctl is-active --quiet skycore-video.service; then
+        echo -e "${GREEN}[✔]${NC} Video service started successfully"
+    else
+        echo -e "${RED}[✖]${NC} Failed to start video service"
+        echo -e "${YELLOW}[⋯]${NC} Check logs with: systemctl status skycore-video.service"
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Video service has been set up and will run on boot"
+    echo -e "${YELLOW}[⋯]${NC} You can control it with:"
+    echo -e "  - systemctl start skycore-video.service"
+    echo -e "  - systemctl stop skycore-video.service"
+    echo -e "  - systemctl restart skycore-video.service"
+}
+
 if [[ "$1" == "cli" ]]; then
     echo "Starting SkyCore CLI..."
     python3 "skycore_cli.py"
@@ -1142,6 +1315,16 @@ elif [[ "$1" == "utils" ]]; then
     shift
     utils_command "$@"
 
+elif [[ "$1" == "tty-setup" ]]; then
+    # Setup TTY device rules
+    shift
+    setup_tty_rules "$@"
+
+elif [[ "$1" == "video-service" ]]; then
+    # Setup video streaming service
+    shift
+    setup_video_service "$@"
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
@@ -1157,6 +1340,8 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore up        - Start services listed in skycore.conf"
     echo "  skycore down      - Stop all Docker services"
     echo "  skycore install   - Install skycore to the system"
+    echo "  skycore tty-setup - Set up TTY device permission rules"
+    echo "  skycore video-service [path] - Set up video streaming service to run on boot"
     echo "  skycore utils     - Run utility commands"
     echo "    Available utilities:"
     echo "      boot_mmc      - Configure system to boot from SD card"

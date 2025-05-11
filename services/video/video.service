@@ -1,0 +1,15 @@
+[Unit]
+Description=Video SHM Service
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/skycore/video/.env
+ExecStart=/bin/bash video.sh
+WorkingDirectory=/home/skycore/video/
+User=skycore
+
+[Install]
+WantedBy=multi-user.target
