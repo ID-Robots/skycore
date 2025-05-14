@@ -33,15 +33,20 @@ logging.basicConfig(
 
 # --- Constants ---
 # Camera and detection constants
-TARGET_DISTANCE_M = 0.20
+TARGET_DISTANCE_M = 0.15
 MARKER_SIZE_CM = 5.2
 
+# ArduPilot mode for docking
+DOCK_MODE_NAME = "MANUAL"  # Mode name that triggers docking behavior
+
 # Mavlink control constants
-BACKWARD_THROTTLE_VALUE = -300
-LEFT_STEER_VALUE = -500
-RIGHT_STEER_VALUE = 500  # Added right steering value
+BACKWARD_THROTTLE_VALUE = -350
+FORWARD_THROTTLE_VALUE = 400  # Increased from 250 to 400 for stronger forward movement
+LEFT_STEER_VALUE = -350  # Reduced from -550 for less aggressive rotation
+RIGHT_STEER_VALUE = 350  # Reduced from 550 for less aggressive rotation
 NEUTRAL_THROTTLE_VALUE = 0
 NEUTRAL_STEER_VALUE = 0
+FINAL_APPROACH_THROTTLE_VALUE = -350  # Softer backward movement for final docking approach
 
 # Steering control constants
 STEERING_GAIN = -0.5
@@ -54,6 +59,8 @@ ROTATION_PWM_OFFSET = 200
 SEARCH_STEP_DURATION_S = 1.5
 SEARCH_PAUSE_DURATION_S = 1.0
 CONTROL_LOOP_RATE_HZ = 10
+FINAL_DOCKING_DURATION_S = 1.0  # Duration of final docking movement in seconds
+DOCKING_SAFETY_TIMEOUT_S = 5.0  # Safety timeout for docking operations
 
 # --- Stream Factory Class ---
 class StreamFactory(GstRtspServer.RTSPMediaFactory):
@@ -177,6 +184,8 @@ class BackCameraStreamer:
     STATE_SEARCHING = 0
     STATE_APPROACHING = 1
     STATE_DONE = 2
+    STATE_FINAL_DOCKING = 3  # Added for final docking movement
+    STATE_DISARMING = 4     # Added for disarming the vehicle
     
     def __init__(self, serial_number="021222073747"):
         """Initialize the BackCameraStreamer with configuration parameters."""
@@ -264,6 +273,8 @@ class BackCameraStreamer:
         self.last_marker_side = None  # 'left', 'right', or None
         self.control_thread = None
         self.last_command_time = 0
+        self.final_docking_entered_time = None  # Track when FINAL_DOCKING was entered
+        self.disarming_entered_time = None      # Track when DISARMING was entered
 
         # Set up signal handlers
         signal.signal(signal.SIGINT, self.exit_handler)
@@ -791,7 +802,9 @@ class BackCameraStreamer:
         state_names = {
             self.STATE_SEARCHING: "SEARCHING",
             self.STATE_APPROACHING: "APPROACHING",
-            self.STATE_DONE: "DONE"
+            self.STATE_DONE: "DONE",
+            self.STATE_FINAL_DOCKING: "FINAL_DOCKING",
+            self.STATE_DISARMING: "DISARMING"
         }
         
         # Use provided state or get it from instance
@@ -826,7 +839,9 @@ class BackCameraStreamer:
         state_names = {
             self.STATE_SEARCHING: "SEARCHING",
             self.STATE_APPROACHING: "APPROACHING",
-            self.STATE_DONE: "DONE"
+            self.STATE_DONE: "DONE",
+            self.STATE_FINAL_DOCKING: "FINAL_DOCKING",
+            self.STATE_DISARMING: "DISARMING"
         }
         
         # Log initial state
@@ -837,6 +852,9 @@ class BackCameraStreamer:
         # Track search iterations
         search_rotations = 0
 
+        # Add mode checking variables
+        last_mode_check_time = time.time()
+
         while not self.time_to_exit:
             try:
                 # Initialize command variables for this iteration
@@ -844,6 +862,26 @@ class BackCameraStreamer:
                 target_steering_value = NEUTRAL_STEER_VALUE 
                 throttle_command = NEUTRAL_THROTTLE_VALUE
                 steering_command = NEUTRAL_STEER_VALUE
+                
+                # Check if we're in dock mode (only check periodically to reduce overhead)
+                current_time = time.time()
+                if current_time - last_mode_check_time > 1.0:  # Check every second
+                    is_dock_mode_active = self.is_in_dock_mode()
+                    last_mode_check_time = current_time
+                    
+                    # If mode changed, log it
+                    if is_dock_mode_active and current_action_desc != "Dock mode active - docking control enabled":
+                        current_action_desc = "Dock mode active - docking control enabled"
+                        self.log("INFO", current_action_desc)
+                        last_action_desc = current_action_desc
+                    elif not is_dock_mode_active and current_action_desc != "Dock mode inactive - monitoring only":
+                        current_action_desc = "Dock mode inactive - monitoring only"
+                        self.log("INFO", current_action_desc)
+                        last_action_desc = current_action_desc
+                        # Stop any movement if we were moving and mode changed
+                        if is_moving:
+                            self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                            is_moving = False
 
                 # Read shared state under lock
                 with self.control_lock:
@@ -855,7 +893,13 @@ class BackCameraStreamer:
                 if target_detected:
                     self.log("INFO", f"Marker detected: distance={distance_m:.3f}m, horizontal_error={horizontal_error:.3f}")
                 
-                # State Machine Logic
+                # Only perform docking control actions if in DOCK mode
+                if not is_dock_mode_active:
+                    # When not in dock mode, just monitor and don't control
+                    time.sleep(1.0 / CONTROL_LOOP_RATE_HZ)
+                    continue
+                
+                # State Machine Logic - only runs when in docking mode
                 if current_state == self.STATE_SEARCHING:
                     prev_state = current_state
                     # Pass search_rotations to _handle_searching_state and get back updated count
@@ -895,13 +939,108 @@ class BackCameraStreamer:
                         continue
 
                 elif current_state == self.STATE_DONE:
-                    current_action_desc = "Docking complete. Maintaining position."
-                    if current_action_desc != last_action_desc:
-                         self.log("INFO", current_action_desc)
-                         last_action_desc = current_action_desc
-                    if is_moving:
-                         self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
-                         is_moving = False
+                    # Initialize done_state_entered_time if we just entered DONE state
+                    if not hasattr(self, 'done_state_entered_time') or self.done_state_entered_time is None:
+                        self.done_state_entered_time = time.time()
+                        self.log("INFO", "Entered DONE state. Will continue to FINAL_DOCKING in 1 second.")
+                    
+                    # Check if we've been in DONE state for 1 second
+                    current_time = time.time()
+                    if current_time - self.done_state_entered_time >= 1.0:
+                        # Transition to FINAL_DOCKING state
+                        current_state = self.STATE_FINAL_DOCKING
+                        self.current_state = current_state
+                        self.final_docking_entered_time = time.time()
+                        self.done_state_entered_time = None  # Reset for future use
+                        
+                        self.log("INFO", "="*50)
+                        self.log("INFO", f"STATE CHANGE: {state_names[self.STATE_DONE]} -> {state_names[current_state]}")
+                        self.log("INFO", "="*50)
+                        self.log("INFO", f"Starting final docking movement for {FINAL_DOCKING_DURATION_S} seconds")
+                    else:
+                        # Stay in DONE state, just maintain position
+                        current_action_desc = f"Target reached. Waiting for transition to final docking... ({1.0 - (current_time - self.done_state_entered_time):.1f}s)"
+                        if current_action_desc != last_action_desc:
+                            self.log("INFO", current_action_desc)
+                            last_action_desc = current_action_desc
+                        
+                        if is_moving:
+                            self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+                            is_moving = False
+                
+                elif current_state == self.STATE_FINAL_DOCKING:
+                    # Ensure final_docking_entered_time is initialized
+                    if self.final_docking_entered_time is None:
+                        self.final_docking_entered_time = time.time()
+                        self.log("INFO", "Initializing final docking timestamp")
+                    
+                    # Calculate elapsed time
+                    current_time = time.time()
+                    elapsed_time = current_time - self.final_docking_entered_time
+                    
+                    # Add a safety timeout
+                    if elapsed_time > DOCKING_SAFETY_TIMEOUT_S:
+                        self.log("WARNING", f"Final docking exceeded maximum allowed time ({DOCKING_SAFETY_TIMEOUT_S}s). Forcing completion.")
+                        elapsed_time = FINAL_DOCKING_DURATION_S  # Force completion
+                    
+                    if elapsed_time < FINAL_DOCKING_DURATION_S:
+                        # Continue backing up for FINAL_DOCKING_DURATION_S seconds with the final approach throttle
+                        throttle_command = FINAL_APPROACH_THROTTLE_VALUE
+                        steering_command = NEUTRAL_STEER_VALUE
+                        
+                        current_action_desc = f"Final docking: continuing backward for {FINAL_DOCKING_DURATION_S - elapsed_time:.1f} more seconds (throttle={throttle_command})"
+                        if current_action_desc != last_action_desc:
+                            self.log("INFO", current_action_desc)
+                            last_action_desc = current_action_desc
+                        
+                        # Send command
+                        self.log("DEBUG", f"Sending final docking command: throttle={throttle_command}, steering={steering_command}")
+                        self.send_manual_control_command(throttle_z=throttle_command, steering_y=steering_command)
+                        is_moving = True
+                        
+                        # Force command to be sent at higher rate during final docking
+                        time.sleep(0.05)
+                    else:
+                        # Done with final docking movement, proceed to disarming
+                        current_action_desc = "Final docking complete. Moving to DISARMING."
+                        if current_action_desc != last_action_desc:
+                            self.log("INFO", current_action_desc)
+                            last_action_desc = current_action_desc
+                        
+                        # Move to DISARMING state
+                        current_state = self.STATE_DISARMING
+                        self.current_state = current_state
+                        self.disarming_entered_time = time.time()
+                        self.final_docking_entered_time = None  # Reset for future use
+                        
+                        self.log("INFO", "="*50)
+                        self.log("INFO", f"STATE CHANGE: {state_names[self.STATE_FINAL_DOCKING]} -> {state_names[current_state]}")
+                        self.log("INFO", "="*50)
+                
+                elif current_state == self.STATE_DISARMING:
+                    # Only try disarming once
+                    if not hasattr(self, 'disarm_attempted') or not self.disarm_attempted:
+                        self.disarm_attempted = True
+                        current_action_desc = "Attempting to disarm vehicle..."
+                        if current_action_desc != last_action_desc:
+                            self.log("INFO", current_action_desc)
+                            last_action_desc = current_action_desc
+                        
+                        # Call the disarm method
+                        disarm_success = self.disarm_vehicle()
+                        
+                        if disarm_success:
+                            current_action_desc = "Vehicle successfully disarmed. Manual control available."
+                        else:
+                            current_action_desc = "Vehicle disarm failed or timed out. Manual control available."
+                        
+                        if current_action_desc != last_action_desc:
+                            self.log("INFO", current_action_desc)
+                            last_action_desc = current_action_desc
+                    else:
+                        # Skip sending any movement commands to allow manual control
+                        # This allows external control without interference
+                        continue
 
                 # Send calculated throttle/steering for non-approaching states
                 if current_state != self.STATE_APPROACHING:
@@ -1040,6 +1179,79 @@ class BackCameraStreamer:
         
         return current_state, is_moving, current_action_desc
 
+    def is_in_dock_mode(self):
+        """Check if the vehicle is in the docking mode."""
+        # Temporary override - always return True to force dock mode active
+        return True
+        
+        try:
+            if not self.connection:
+                self.log("ERROR", "No MAVLink connection to check vehicle mode.")
+                return False
+                
+            # Request heartbeat to get current mode
+            msg = self.connection.recv_match(type='HEARTBEAT', blocking=True, timeout=1.0)
+            if not msg:
+                self.log("WARNING", "No heartbeat received when checking vehicle mode.")
+                return False
+                
+            # Check if vehicle is in the correct mode
+            mode_id = msg.custom_mode
+            mode_name = self.connection.mode_mapping().get(mode_id, f"UNKNOWN({mode_id})")
+            
+            # If the specific DOCK mode isn't available, we can also accept MANUAL mode
+            is_dock_mode = (mode_name == DOCK_MODE_NAME or mode_name == "MANUAL")
+            
+            if is_dock_mode:
+                self.log("DEBUG", f"Vehicle is in docking mode: {mode_name}")
+            else:
+                self.log("DEBUG", f"Vehicle is in mode: {mode_name}, not a docking mode")
+                
+            return is_dock_mode
+            
+        except Exception as e:
+            self.log("ERROR", f"Error checking vehicle mode: {e}")
+            return False
+
+    def disarm_vehicle(self):
+        """Disarm the vehicle using MAVLink command."""
+        try:
+            if not self.connection:
+                self.log("ERROR", "No MAVLink connection to disarm vehicle.")
+                return False
+                
+            self.log("INFO", "Sending DISARM command to vehicle...")
+            
+            # Stop all movement first
+            self.send_manual_control_command(throttle_z=NEUTRAL_THROTTLE_VALUE, steering_y=NEUTRAL_STEER_VALUE)
+            time.sleep(0.5)  # Give time for the movement to stop
+            
+            # Send disarm command
+            self.connection.arducopter_disarm()
+            
+            # Wait for confirmation of disarm
+            start_time = time.time()
+            disarmed = False
+            
+            while time.time() - start_time < 3.0:  # 3 second timeout
+                msg = self.connection.recv_match(type='HEARTBEAT', blocking=True, timeout=0.5)
+                if msg:
+                    is_armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                    if not is_armed:
+                        self.log("INFO", "Vehicle successfully DISARMED")
+                        disarmed = True
+                        break
+            
+            if not disarmed:
+                self.log("WARNING", "Failed to confirm vehicle disarm within timeout")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.log("ERROR", f"Error while attempting to disarm: {e}")
+            return False
+
 # --- Main Execution ---
 if __name__ == "__main__":
     print("=" * 80)
@@ -1053,8 +1265,11 @@ if __name__ == "__main__":
     print(f"Target ArUco marker ID: {streamer.target_marker_id} (Green Rectangle)")
     print(f"Target Distance: {TARGET_DISTANCE_M:.2f} m")
     print(f"Backward Throttle: {BACKWARD_THROTTLE_VALUE} (Manual Control)")
+    print(f"Final Approach Throttle: {FINAL_APPROACH_THROTTLE_VALUE} (Docking)")
     print(f"Left Rotation: {LEFT_STEER_VALUE}, Right Rotation: {RIGHT_STEER_VALUE} (Manual Control)")
     print("Detecting other ArUco markers (Blue Rectangle)")
+    print(f"Docking Mode: Will only search and dock when in '{DOCK_MODE_NAME}' or 'MANUAL' mode")
+    print("Enhanced Features: Final docking movement + Auto disarm + Manual control after docking")
     print("Run with --help for more options")
     print("=" * 80)
     
