@@ -1291,6 +1291,137 @@ EOF
     echo -e "  - systemctl restart skycore-video.service"
 }
 
+# Function to set up video storage service
+setup_video_storage_service() {
+    check_root
+
+    # Use absolute path instead of relative
+    SCRIPT_PATH="/home/skycore/video_storage.sh"
+    OUTPUT_DIR="${1:-/home/skycore/videos}"
+    TARGET_IP="${2:-192.168.144.25}"
+    SEGMENT_DURATION="${3:-60}"
+    MAX_FILES="${4:-60}"
+    
+    echo -e "${YELLOW}[⋯]${NC} Setting up video storage service..."
+    echo -e "${YELLOW}[⋯]${NC} Using RTSP source: rtsp://${TARGET_IP}:8554/main.264"
+    echo -e "${YELLOW}[⋯]${NC} Saving recordings to: ${OUTPUT_DIR}"
+    echo -e "${YELLOW}[⋯]${NC} Segment duration: ${SEGMENT_DURATION} seconds"
+    echo -e "${YELLOW}[⋯]${NC} Maximum segments per playlist: ${MAX_FILES}"
+    
+    # Create output directory if it doesn't exist
+    mkdir -p "$OUTPUT_DIR"
+    chown skycore:skycore "$OUTPUT_DIR"
+    
+    # Create the video storage script file
+    echo -e "${YELLOW}[⋯]${NC} Creating video storage script at $SCRIPT_PATH..."
+    
+    cat > "$SCRIPT_PATH" << EOF
+#!/bin/bash
+
+# Set output directory for video storage
+OUTPUT_DIR="${OUTPUT_DIR}"
+# Create directory if it doesn't exist
+mkdir -p \$OUTPUT_DIR
+
+# Log file for recording status
+LOG_FILE="\$OUTPUT_DIR/recording_log.txt"
+
+# Function to log messages
+log_message() {
+    echo "\$(date +"%Y-%m-%d %H:%M:%S") - \$1" >> "\$LOG_FILE"
+    echo "\$1"
+}
+
+log_message "Starting HLS recording with ${SEGMENT_DURATION}-minute playlist rotation"
+
+# Main recording loop - runs indefinitely
+while true; do
+    # Generate timestamp for this recording
+    TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
+    
+    log_message "Creating new playlist: \${TIMESTAMP}_playlist.m3u8"
+    
+    # Run GStreamer for configured time (SEGMENT_DURATION * 60 seconds)
+    timeout $((SEGMENT_DURATION * 60)) gst-launch-1.0 -e \\
+        rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
+        rtph264depay ! \\
+        h264parse ! \\
+        mpegtsmux ! \\
+        hlssink playlist-root=file://\$OUTPUT_DIR \\
+        target-duration=${SEGMENT_DURATION} \\
+        max-files=${MAX_FILES} \\
+        playlist-location="\$OUTPUT_DIR/\${TIMESTAMP}_playlist.m3u8" \\
+        location="\$OUTPUT_DIR/\${TIMESTAMP}_segment_%05d.ts"
+    
+    # Check if gst-launch exited due to an error
+    EXIT_CODE=\$?
+    if [ \$EXIT_CODE -ne 0 ] && [ \$EXIT_CODE -ne 124 ]; then
+        # Exit code 124 means timeout completed normally
+        log_message "Error: gst-launch exited with code \$EXIT_CODE. Waiting 10 seconds before retry."
+        sleep 10
+    else
+        log_message "${SEGMENT_DURATION}-minute recording completed successfully"
+        # Small pause between recordings
+        sleep 2
+    fi
+done
+EOF
+
+    # Make script executable
+    chmod +x "$SCRIPT_PATH"
+    chown skycore:skycore "$SCRIPT_PATH"
+    
+    # Create systemd service file
+    SERVICE_FILE="/etc/systemd/system/skycore-video-storage.service"
+    
+    echo -e "${YELLOW}[⋯]${NC} Creating systemd service file at $SERVICE_FILE..."
+    
+    cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=SkyCore Video Storage Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$SCRIPT_PATH
+Restart=on-failure
+RestartSec=10
+User=skycore
+Group=skycore
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Reload systemd to recognize new service
+    echo -e "${YELLOW}[⋯]${NC} Reloading systemd..."
+    systemctl daemon-reload
+    
+    # Enable service to start on boot
+    echo -e "${YELLOW}[⋯]${NC} Enabling video storage service to start on boot..."
+    systemctl enable skycore-video-storage.service
+    
+    # Start the service
+    echo -e "${YELLOW}[⋯]${NC} Starting video storage service..."
+    systemctl start skycore-video-storage.service
+    
+    # Check service status
+    sleep 2
+    if systemctl is-active --quiet skycore-video-storage.service; then
+        echo -e "${GREEN}[✔]${NC} Video storage service started successfully"
+    else
+        echo -e "${RED}[✖]${NC} Failed to start video storage service"
+        echo -e "${YELLOW}[⋯]${NC} Check logs with: systemctl status skycore-video-storage.service"
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Video storage service has been set up and will run on boot"
+    echo -e "${YELLOW}[⋯]${NC} Recordings will be saved to: ${OUTPUT_DIR}"
+    echo -e "${YELLOW}[⋯]${NC} You can control the service with:"
+    echo -e "  - systemctl start skycore-video-storage.service"
+    echo -e "  - systemctl stop skycore-video-storage.service"
+    echo -e "  - systemctl restart skycore-video-storage.service"
+}
+
 if [[ "$1" == "cli" ]]; then
     echo "Starting SkyCore CLI..."
     python3 "skycore_cli.py"
@@ -1341,6 +1472,11 @@ elif [[ "$1" == "video-service" ]]; then
     shift
     setup_video_service "$@"
 
+elif [[ "$1" == "video-storage-service" ]]; then
+    # Setup video storage service
+    shift
+    setup_video_storage_service "$@"
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
@@ -1358,6 +1494,7 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore install   - Install skycore to the system"
     echo "  skycore tty-setup - Set up TTY device permission rules"
     echo "  skycore video-service [path] - Set up video streaming service to run on boot"
+    echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
     echo "  skycore utils     - Run utility commands"
     echo "    Available utilities:"
     echo "      boot_mmc      - Configure system to boot from SD card"
