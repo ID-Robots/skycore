@@ -31,7 +31,8 @@ while true; do
         mpegtsmux ! \
         hlssink playlist-root=file://$OUTPUT_DIR \
         target-duration=60 \
-        max-files=60 \
+        playlist-length=60 \
+        max-files=0 \
         playlist-location="$OUTPUT_DIR/${TIMESTAMP}_playlist.m3u8" \
         location="$OUTPUT_DIR/${TIMESTAMP}_segment_%05d.ts"
     
