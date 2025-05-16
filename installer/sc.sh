@@ -1295,18 +1295,17 @@ EOF
 setup_video_storage_service() {
     check_root
 
-    # Use absolute path instead of relative
     SCRIPT_PATH="/home/skycore/video_storage.sh"
     OUTPUT_DIR="${1:-/home/skycore/videos}"
     TARGET_IP="${2:-192.168.144.25}"
-    SEGMENT_DURATION="${3:-60}"
-    MAX_FILES="${4:-60}"
     
     echo -e "${YELLOW}[⋯]${NC} Setting up video storage service..."
     echo -e "${YELLOW}[⋯]${NC} Using RTSP source: rtsp://${TARGET_IP}:8554/main.264"
     echo -e "${YELLOW}[⋯]${NC} Saving recordings to: ${OUTPUT_DIR}"
-    echo -e "${YELLOW}[⋯]${NC} Segment duration: ${SEGMENT_DURATION} seconds"
-    echo -e "${YELLOW}[⋯]${NC} Maximum segments per playlist: ${MAX_FILES}"
+    echo -e "${YELLOW}[⋯]${NC} HLS segment duration (target-duration): 60 seconds"
+    echo -e "${YELLOW}[⋯]${NC} HLS playlist length (segments per playlist file): 60 segments"
+    echo -e "${YELLOW}[⋯]${NC} HLS max files on disk: Unlimited (max-files=0)"
+    echo -e "${YELLOW}[⋯]${NC} Playlist file generation: New playlist file every 60 minutes"
     
     # Create output directory if it doesn't exist
     mkdir -p "$OUTPUT_DIR"
@@ -1332,7 +1331,7 @@ log_message() {
     echo "\$1"
 }
 
-log_message "Starting HLS recording with ${SEGMENT_DURATION}-minute playlist rotation"
+log_message "Starting HLS recording with 60-minute playlist rotation"
 
 # Main recording loop - runs indefinitely
 while true; do
@@ -1341,15 +1340,16 @@ while true; do
     
     log_message "Creating new playlist: \${TIMESTAMP}_playlist.m3u8"
     
-    # Run GStreamer for configured time (SEGMENT_DURATION * 60 seconds)
-    timeout $((SEGMENT_DURATION * 60)) gst-launch-1.0 -e \\
+    # Run GStreamer for 60 minutes (3600 seconds)
+    timeout 3600 gst-launch-1.0 -e \\
         rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
         rtph264depay ! \\
         h264parse ! \\
         mpegtsmux ! \\
         hlssink playlist-root=file://\$OUTPUT_DIR \\
-        target-duration=${SEGMENT_DURATION} \\
-        max-files=${MAX_FILES} \\
+        target-duration=60 \\
+        playlist-length=60 \\
+        max-files=0 \\
         playlist-location="\$OUTPUT_DIR/\${TIMESTAMP}_playlist.m3u8" \\
         location="\$OUTPUT_DIR/\${TIMESTAMP}_segment_%05d.ts"
     
@@ -1360,7 +1360,7 @@ while true; do
         log_message "Error: gst-launch exited with code \$EXIT_CODE. Waiting 10 seconds before retry."
         sleep 10
     else
-        log_message "${SEGMENT_DURATION}-minute recording completed successfully"
+        log_message "60-minute recording completed successfully"
         # Small pause between recordings
         sleep 2
     fi
