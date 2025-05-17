@@ -24,7 +24,7 @@ while true; do
     log_message "Creating new playlist: ${TIMESTAMP}_playlist.m3u8"
     
     # Run GStreamer for 60 minutes (3600 seconds)
-    timeout 3600 gst-launch-1.0 -e \
+    timeout 3630 gst-launch-1.0 -e \
         rtspsrc location=rtsp://192.168.144.25:8554/main.264 latency=50 drop-on-latency=true ! \
         rtph264depay ! \
         h264parse ! \
