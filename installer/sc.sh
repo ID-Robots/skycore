@@ -1022,6 +1022,31 @@ install_skycore() {
         echo -e "${GREEN}[✔]${NC} TTY permission rules have been set up with generic rules."
         echo -e "${YELLOW}[⋯]${NC} Run 'skycore tty-setup <device>' after connecting devices for specific rules."
     fi
+    
+    # Clean up installation files from current directory
+    echo ""
+    echo -e "${YELLOW}[⋯]${NC} Cleaning up installation files..."
+    
+    # Get the directory where the script was run from
+    INSTALL_DIR=$(dirname "$SCRIPT_PATH")
+    
+    # Only clean up if we're not already in the target installation directory
+    if [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
+        # Remove sc.sh from current directory
+        if [ -f "$INSTALL_DIR/sc.sh" ]; then
+            rm -f "$INSTALL_DIR/sc.sh"
+            echo -e "${GREEN}[✔]${NC} Removed temporary sc.sh"
+        fi
+        
+        # Remove skycore_cli.py from current directory
+        if [ -f "$INSTALL_DIR/skycore_cli.py" ]; then
+            rm -f "$INSTALL_DIR/skycore_cli.py"
+            echo -e "${GREEN}[✔]${NC} Removed temporary skycore_cli.py"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}[✔]${NC} Installation complete! You can now use 'skycore' command from anywhere."
 }
 
 # Function to start services listed in skycore.conf
@@ -1478,6 +1503,39 @@ elif [[ "$1" == "video-storage-service" ]]; then
     setup_video_storage_service "$@"
 
 elif [[ "$1" == "help" ]]; then
+    echo "Available commands:"
+    echo "  skycore cli       - Start the SkyCore CLI"
+    echo "  skycore clone     - Clone a device to image files"
+    echo "  skycore flash     - Flash image files to a device"
+    echo "  skycore list      - List available block devices"
+    echo "  skycore activate  - Activate a drone with a token"
+    echo "    Options:"
+    echo "      --token, -t <token>     - Specify the activation token"
+    echo "      --services, -s <list>   - Comma-separated list of services to start"
+    echo "                              (default: drone-mavros,mavproxy)"
+    echo "                              (available: drone-mavros,camera-proxy,mavproxy,ws_proxy)"
+    echo "  skycore up        - Start services listed in skycore.conf"
+    echo "  skycore down      - Stop all Docker services"
+    echo "  skycore install   - Install skycore to the system"
+    echo "  skycore tty-setup - Set up TTY device permission rules"
+    echo "  skycore video-service [path] - Set up video streaming service to run on boot"
+    echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
+    echo "  skycore utils     - Run utility commands"
+    echo "    Available utilities:"
+    echo "      boot_mmc      - Configure system to boot from SD card"
+    echo "      boot_nvme     - Configure system to boot from NVMe drive"
+    echo "  skycore install-wireguard  - Install WireGuard on the system"
+    echo "  skycore help      - Show this help message"
+
+    echo ""
+    echo "For more information on a specific command, use --help:"
+    echo "  skycore clone --help"
+    echo "  skycore flash --help"
+    echo "  skycore activate --help"
+
+else
+    # No arguments or unknown command - show help
+    print_banner
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
     echo "  skycore clone     - Clone a device to image files"
