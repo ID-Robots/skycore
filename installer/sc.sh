@@ -981,7 +981,18 @@ install_skycore() {
     
     sudo cp "$SCRIPT_PATH" "$INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
-    
+
+    # Copy skycore_cli.py alongside the main script if present
+    CLI_SOURCE_PATH="$(dirname "$SCRIPT_PATH")/skycore_cli.py"
+    CLI_INSTALL_PATH="/usr/local/bin/skycore_cli.py"
+    if [ -f "$CLI_SOURCE_PATH" ]; then
+        echo -e "${YELLOW}[⋯]${NC} Installing skycore_cli.py to $CLI_INSTALL_PATH"
+        sudo cp "$CLI_SOURCE_PATH" "$CLI_INSTALL_PATH"
+        sudo chmod +x "$CLI_INSTALL_PATH"
+    else
+        echo -e "${YELLOW}[⋯]${NC} skycore_cli.py not found next to sc.sh; skipping CLI install"
+    fi
+
     # Create symlink in the same directory using direct path
     SYMLINK_PATH="${INSTALL_DIR}/skycore"
     # Use a direct target without any path transformation
