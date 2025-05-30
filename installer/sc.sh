@@ -1449,7 +1449,7 @@ EOF
 
 if [[ "$1" == "cli" ]]; then
     echo "Starting SkyCore CLI..."
-    python3 "skycore_cli.py"
+    python3 "/usr/local/bin/skycore_cli.py"
 
 elif [[ "$1" == "clone" ]]; then
     # Shift to remove the "clone" argument
