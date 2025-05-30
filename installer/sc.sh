@@ -1447,6 +1447,40 @@ EOF
     echo -e "  - systemctl restart skycore-video-storage.service"
 }
 
+# Function to update SkyCore to the latest version
+update_skycore() {
+    echo -e "${YELLOW}[⋯]${NC} Checking for latest SkyCore release..."
+
+    TMP_DIR=$(mktemp -d /tmp/skycore-update-XXXXXX)
+    ARCHIVE_URL="https://skyhub.ai/sc.tar.gz"
+
+    echo -e "${YELLOW}[⋯]${NC} Downloading and extracting archive from $ARCHIVE_URL"
+    if ! curl -sL "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR"; then
+        echo -e "${RED}[✖]${NC} Failed to download or extract SkyCore archive"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+
+    if [ ! -f "$TMP_DIR/sc.sh" ]; then
+        echo -e "${RED}[✖]${NC} sc.sh not found in the downloaded archive"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+
+    echo -e "${YELLOW}[⋯]${NC} Running installer from the new release..."
+    # Run installer with sudo to ensure required privileges for package installation and file copying
+    if sudo bash "$TMP_DIR/sc.sh" install; then
+        echo -e "${GREEN}[✔]${NC} SkyCore updated successfully"
+    else
+        echo -e "${RED}[✖]${NC} SkyCore update failed"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+
+    # Cleanup
+    rm -rf "$TMP_DIR"
+}
+
 if [[ "$1" == "cli" ]]; then
     echo "Starting SkyCore CLI..."
     python3 "/usr/local/bin/skycore_cli.py"
@@ -1465,6 +1499,10 @@ elif [[ "$1" == "install" ]]; then
     # Install skycore to the system
     install_skycore
 
+elif [[ "$1" == "update" ]]; then
+    # Download and install the latest version of skycore
+    update_skycore
+
 elif [[ "$1" == "activate" ]]; then
     # Shift to remove the "activate" argument
     shift
@@ -1475,7 +1513,7 @@ elif [[ "$1" == "up" ]]; then
     skycore_up
 
 elif [[ "$1" == "down" ]]; then
-    # Stop all services
+    # Stop all Docker services
     skycore_down
 
 elif [[ "$1" == "list" ]]; then
@@ -1517,6 +1555,7 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore up        - Start services listed in skycore.conf"
     echo "  skycore down      - Stop all Docker services"
     echo "  skycore install   - Install skycore to the system"
+    echo "  skycore update    - Update skycore to the latest version"
     echo "  skycore tty-setup - Set up TTY device permission rules"
     echo "  skycore video-service [path] - Set up video streaming service to run on boot"
     echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
@@ -1550,6 +1589,7 @@ else
     echo "  skycore up        - Start services listed in skycore.conf"
     echo "  skycore down      - Stop all Docker services"
     echo "  skycore install   - Install skycore to the system"
+    echo "  skycore update    - Update skycore to the latest version"
     echo "  skycore tty-setup - Set up TTY device permission rules"
     echo "  skycore video-service [path] - Set up video streaming service to run on boot"
     echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
