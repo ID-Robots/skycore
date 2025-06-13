@@ -1458,6 +1458,146 @@ EOF
     echo -e "  - systemctl restart skycore-video-storage.service"
 }
 
+# Function to set up audio streaming service
+setup_audio_service() {
+    check_root
+
+    SCRIPT_PATH="/home/skycore/audio_encoder.sh"
+    TARGET_PORT="${1:-5011}"
+    
+    echo -e "${YELLOW}[⋯]${NC} Setting up audio streaming service..."
+    echo -e "${YELLOW}[⋯]${NC} Streaming audio to UDP port: ${TARGET_PORT}"
+    echo -e "${YELLOW}[⋯]${NC} Looking for ReSpeaker audio device..."
+    
+    # Create the audio encoder script file
+    echo -e "${YELLOW}[⋯]${NC} Creating audio encoder script at $SCRIPT_PATH..."
+    
+    cat > "$SCRIPT_PATH" << 'EOF'
+#!/bin/bash
+
+# Function to find ReSpeaker audio device
+find_respeaker_device() {
+    CARD_NUMBER=$(arecord -l | grep -i respeaker | head -1 | sed 's/card \([0-9]\).*/\1/')
+    if [ -z "$CARD_NUMBER" ]; then
+        echo "Warning: No ReSpeaker device found. Audio will be disabled." >&2
+        return 1
+    else
+        echo "Found ReSpeaker at card $CARD_NUMBER" >&2
+        echo $CARD_NUMBER
+        return 0
+    fi
+}
+
+# Log function for service output
+log_message() {
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - $1"
+}
+
+log_message "Starting audio encoder service..."
+
+# Check for ReSpeaker device
+RESPEAKER_CARD=$(find_respeaker_device | tail -n 1)
+AUDIO_AVAILABLE=$?
+
+# Audio pipeline (if ReSpeaker available)
+if [ $AUDIO_AVAILABLE -eq 0 ]; then
+    log_message "Adding audio stream from ReSpeaker (card $RESPEAKER_CARD) on port TARGET_PORT_PLACEHOLDER"
+    
+    # Main audio streaming loop with restart capability
+    while true; do
+        gst-launch-1.0 -e \
+            alsasrc device=hw:$RESPEAKER_CARD,0 do-timestamp=true ! \
+            audio/x-raw,format=S16LE,rate=16000,channels=6 ! \
+            audioconvert ! audioresample ! \
+            audio/x-raw,rate=48000,channels=2 ! \
+            opusenc bitrate=128000 ! \
+            rtpopuspay pt=111 ! \
+            udpsink host=127.0.0.1 port=TARGET_PORT_PLACEHOLDER sync=false
+        
+        # Check exit status
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -ne 0 ]; then
+            log_message "Audio pipeline exited with code $EXIT_CODE. Restarting in 5 seconds..."
+            sleep 5
+        else
+            log_message "Audio pipeline stopped normally"
+            break
+        fi
+    done
+else
+    log_message "No ReSpeaker audio device found - audio encoder disabled"
+    log_message "Service will keep running but audio streaming is inactive"
+    
+    # Keep the service running even without audio device
+    while true; do
+        sleep 60
+        log_message "Audio service running (no device detected)"
+    done
+fi
+EOF
+
+    # Replace the placeholder with actual port
+    sed -i "s/TARGET_PORT_PLACEHOLDER/${TARGET_PORT}/g" "$SCRIPT_PATH"
+
+    # Make script executable
+    chmod +x "$SCRIPT_PATH"
+    chown skycore:skycore "$SCRIPT_PATH"
+    
+    # Create systemd service file
+    SERVICE_FILE="/etc/systemd/system/skycore-audio.service"
+    
+    echo -e "${YELLOW}[⋯]${NC} Creating systemd service file at $SERVICE_FILE..."
+    
+    cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=SkyCore Audio Streaming Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+ExecStart=$SCRIPT_PATH
+Restart=on-failure
+RestartSec=10
+User=skycore
+Group=skycore
+# Add audio group for ALSA access
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Reload systemd to recognize new service
+    echo -e "${YELLOW}[⋯]${NC} Reloading systemd..."
+    systemctl daemon-reload
+    
+    # Enable service to start on boot
+    echo -e "${YELLOW}[⋯]${NC} Enabling audio service to start on boot..."
+    systemctl enable skycore-audio.service
+    
+    # Start the service
+    echo -e "${YELLOW}[⋯]${NC} Starting audio service..."
+    systemctl start skycore-audio.service
+    
+    # Check service status
+    sleep 3
+    if systemctl is-active --quiet skycore-audio.service; then
+        echo -e "${GREEN}[✔]${NC} Audio service started successfully"
+    else
+        echo -e "${RED}[✖]${NC} Failed to start audio service"
+        echo -e "${YELLOW}[⋯]${NC} Check logs with: systemctl status skycore-audio.service"
+        echo -e "${YELLOW}[⋯]${NC} Check logs with: journalctl -u skycore-audio.service -f"
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Audio service has been set up and will run on boot"
+    echo -e "${YELLOW}[⋯]${NC} Audio will be streamed to UDP port: ${TARGET_PORT}"
+    echo -e "${YELLOW}[⋯]${NC} You can control the service with:"
+    echo -e "  - systemctl start skycore-audio.service"
+    echo -e "  - systemctl stop skycore-audio.service"
+    echo -e "  - systemctl restart skycore-audio.service"
+    echo -e "  - journalctl -u skycore-audio.service -f  (view logs)"
+}
+
 # Function to update SkyCore to the latest version
 update_skycore() {
     echo -e "${YELLOW}[⋯]${NC} Checking for latest SkyCore release..."
@@ -1551,6 +1691,11 @@ elif [[ "$1" == "video-storage-service" ]]; then
     shift
     setup_video_storage_service "$@"
 
+elif [[ "$1" == "audio-service" ]]; then
+    # Setup audio streaming service
+    shift
+    setup_audio_service "$@"
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
@@ -1568,8 +1713,9 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore install   - Install skycore to the system"
     echo "  skycore update    - Update skycore to the latest version"
     echo "  skycore tty-setup - Set up TTY device permission rules"
-    echo "  skycore video-service [path] - Set up video streaming service to run on boot"
-    echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
+    echo "  skycore video-service [ip] [port] - Set up video streaming service to run on boot"
+    echo "  skycore video-storage-service [output_dir] [ip] - Set up video storage service to run on boot"
+    echo "  skycore audio-service [port] - Set up audio streaming service to run on boot"
     echo "  skycore utils     - Run utility commands"
     echo "    Available utilities:"
     echo "      boot_mmc      - Configure system to boot from SD card"
@@ -1602,8 +1748,9 @@ else
     echo "  skycore install   - Install skycore to the system"
     echo "  skycore update    - Update skycore to the latest version"
     echo "  skycore tty-setup - Set up TTY device permission rules"
-    echo "  skycore video-service [path] - Set up video streaming service to run on boot"
-    echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
+    echo "  skycore video-service [ip] [port] - Set up video streaming service to run on boot"
+    echo "  skycore video-storage-service [output_dir] [ip] - Set up video storage service to run on boot"
+    echo "  skycore audio-service [port] - Set up audio streaming service to run on boot"
     echo "  skycore utils     - Run utility commands"
     echo "    Available utilities:"
     echo "      boot_mmc      - Configure system to boot from SD card"
