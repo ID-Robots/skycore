@@ -1331,13 +1331,16 @@ EOF
 setup_video_storage_service() {
     check_root
 
-    SCRIPT_PATH="/home/skycore/video_storage.sh"
+    # Use the updated video_storage_encoder_with_audio.sh script
+    SOURCE_SCRIPT_PATH="$(dirname "$0")/video_encoders/video_storage_encoder_with_audio.sh"
+    SCRIPT_PATH="/home/skycore/video_storage_encoder_with_audio.sh"
     OUTPUT_DIR="${1:-/home/skycore/videos}"
     TARGET_IP="${2:-192.168.144.25}"
     
-    echo -e "${YELLOW}[⋯]${NC} Setting up video storage service..."
+    echo -e "${YELLOW}[⋯]${NC} Setting up video storage service with audio support..."
     echo -e "${YELLOW}[⋯]${NC} Using RTSP source: rtsp://${TARGET_IP}:8554/main.264"
     echo -e "${YELLOW}[⋯]${NC} Saving recordings to: ${OUTPUT_DIR}"
+    echo -e "${YELLOW}[⋯]${NC} Audio support: Will receive audio from audio_encoder.sh via UDP port 5011"
     echo -e "${YELLOW}[⋯]${NC} HLS segment duration (target-duration): 60 seconds"
     echo -e "${YELLOW}[⋯]${NC} HLS playlist length (segments per playlist file): 60 segments"
     echo -e "${YELLOW}[⋯]${NC} HLS max files on disk: Unlimited (max-files=0)"
@@ -1347,8 +1350,8 @@ setup_video_storage_service() {
     mkdir -p "$OUTPUT_DIR"
     chown skycore:skycore "$OUTPUT_DIR"
     
-    # Create the video storage script file
-    echo -e "${YELLOW}[⋯]${NC} Creating video storage script at $SCRIPT_PATH..."
+    # Create the enhanced video storage script with audio support
+    echo -e "${YELLOW}[⋯]${NC} Creating enhanced video storage script at $SCRIPT_PATH..."
     
     cat > "$SCRIPT_PATH" << EOF
 #!/bin/bash
@@ -1367,27 +1370,78 @@ log_message() {
     echo "\$1"
 }
 
-log_message "Starting HLS recording with 60-minute playlist rotation"
+# Function to check if audio encoder is running and providing audio stream
+check_audio_encoder() {
+    # Check if audio_encoder.sh is running
+    if pgrep -f "audio_encoder.sh" > /dev/null; then
+        log_message "Audio encoder is running - will use UDP audio stream on port 5011"
+        return 0
+    else
+        log_message "Warning: Audio encoder is not running. Audio will be disabled."
+        return 1
+    fi
+}
+
+log_message "Starting HLS recording with audio support and 60-minute playlist rotation"
+
+# Check for audio encoder availability
+check_audio_encoder
+AUDIO_AVAILABLE=\$?
 
 # Main recording loop - runs indefinitely
 while true; do
-    # Generate timestamp for this recording
+    # Generate timestamp for this hour's recording
     TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
     
     log_message "Creating new playlist: \${TIMESTAMP}_playlist.m3u8"
     
-    # Run GStreamer for 60 minutes (3600 seconds)
-    timeout 3630 gst-launch-1.0 -e \\
-        rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
-        rtph264depay ! \\
-        h264parse ! \\
-        mpegtsmux ! \\
-        hlssink playlist-root=file://\$OUTPUT_DIR \\
-        target-duration=60 \\
-        playlist-length=60 \\
-        max-files=0 \\
-        playlist-location="\$OUTPUT_DIR/\${TIMESTAMP}_playlist.m3u8" \\
-        location="\$OUTPUT_DIR/\${TIMESTAMP}_segment_%05d.ts"
+    if [ \$AUDIO_AVAILABLE -eq 0 ]; then
+        log_message "Recording with audio from UDP stream (port 5011)"
+        # Enhanced pipeline with audio support (video + UDP audio stream)
+        # Try hardware encoding first, fallback to software if it fails
+        timeout 3630 gst-launch-1.0 -e \\
+            mpegtsmux name=mux ! \\
+                hlssink playlist-root=file://\$OUTPUT_DIR \\
+                         target-duration=60 playlist-length=60 max-files=0 \\
+                         playlist-location="\$OUTPUT_DIR/\${TIMESTAMP}_playlist.m3u8" \\
+                         location="\$OUTPUT_DIR/\${TIMESTAMP}_segment_%05d.ts" \\
+            rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
+                rtph264depay ! h264parse ! \\
+                nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \\
+                nvvidconv ! \\
+                video/x-raw,format=I420 ! \\
+                videorate max-rate=25 ! \\
+                x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \\
+                h264parse config-interval=1 ! \\
+                queue max-size-buffers=100 max-size-time=1000000000 ! \\
+                mux. \\
+            udpsrc port=5011 caps="application/x-rtp,media=audio,clock-rate=48000,encoding-name=OPUS,payload=111" ! \\
+                rtpopusdepay ! opusdec ! \\
+                audioconvert ! audioresample ! \\
+                audio/x-raw,rate=48000,channels=2 ! \\
+                queue max-size-buffers=200 max-size-time=2000000000 ! \\
+                avenc_aac bitrate=128000 ! aacparse ! mux.
+    else
+        log_message "Recording video only (no audio device available)"
+        # Video-only pipeline using software encoding
+        timeout 3630 gst-launch-1.0 -e \\
+            rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
+            rtph264depay ! h264parse ! \\
+            nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \\
+            nvvidconv ! \\
+            video/x-raw,format=I420 ! \\
+            videorate max-rate=25 ! \\
+            x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \\
+            h264parse config-interval=1 ! \\
+            queue max-size-buffers=100 max-size-time=1000000000 ! \\
+            mpegtsmux ! \\
+            hlssink playlist-root=file://\$OUTPUT_DIR \\
+            target-duration=60 \\
+            playlist-length=60 \\
+            max-files=0 \\
+            playlist-location="\$OUTPUT_DIR/\${TIMESTAMP}_playlist.m3u8" \\
+            location="\$OUTPUT_DIR/\${TIMESTAMP}_segment_%05d.ts"
+    fi
     
     # Check if gst-launch exited due to an error
     EXIT_CODE=\$?
@@ -1396,7 +1450,11 @@ while true; do
         log_message "Error: gst-launch exited with code \$EXIT_CODE. Waiting 10 seconds before retry."
         sleep 10
     else
-        log_message "60-minute recording completed successfully"
+        if [ \$AUDIO_AVAILABLE -eq 0 ]; then
+            log_message "60-minute recording with UDP audio completed successfully"
+        else
+            log_message "60-minute recording (video only) completed successfully"
+        fi
         # Small pause between recordings
         sleep 2
     fi
@@ -1414,8 +1472,10 @@ EOF
     
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=SkyCore Video Storage Service
-After=network.target
+Description=SkyCore Video Storage Service with Audio Support
+After=network.target sound.target
+# Optional dependency on audio service - will start after audio if available
+After=skycore-audio.service
 
 [Service]
 Type=simple
@@ -1424,6 +1484,8 @@ Restart=on-failure
 RestartSec=10
 User=skycore
 Group=skycore
+# Add audio group for potential audio access
+SupplementaryGroups=audio
 
 [Install]
 WantedBy=multi-user.target
@@ -1452,10 +1514,157 @@ EOF
     
     echo -e "${GREEN}[✔]${NC} Video storage service has been set up and will run on boot"
     echo -e "${YELLOW}[⋯]${NC} Recordings will be saved to: ${OUTPUT_DIR}"
+    echo -e "${YELLOW}[⋯]${NC} Recording logs will be saved to: ${OUTPUT_DIR}/recording_log.txt"
+    echo -e "${YELLOW}[⋯]${NC} Audio support: Start audio-service first for audio recording"
     echo -e "${YELLOW}[⋯]${NC} You can control the service with:"
     echo -e "  - systemctl start skycore-video-storage.service"
     echo -e "  - systemctl stop skycore-video-storage.service"
     echo -e "  - systemctl restart skycore-video-storage.service"
+    echo -e "  - journalctl -u skycore-video-storage.service -f  (view logs)"
+    
+    echo ""
+    echo -e "${YELLOW}[⋯]${NC} For audio recording, also set up the audio service:"
+    echo -e "  skycore audio-service"
+}
+
+# Function to set up audio streaming service
+setup_audio_service() {
+    check_root
+
+    SCRIPT_PATH="/home/skycore/audio_encoder.sh"
+    TARGET_PORT="${1:-5011}"
+    
+    echo -e "${YELLOW}[⋯]${NC} Setting up audio streaming service..."
+    echo -e "${YELLOW}[⋯]${NC} Streaming audio to UDP port: ${TARGET_PORT}"
+    echo -e "${YELLOW}[⋯]${NC} Looking for ReSpeaker audio device..."
+    
+    # Create the audio encoder script file
+    echo -e "${YELLOW}[⋯]${NC} Creating audio encoder script at $SCRIPT_PATH..."
+    
+    cat > "$SCRIPT_PATH" << 'EOF'
+#!/bin/bash
+
+# Function to find ReSpeaker audio device
+find_respeaker_device() {
+    CARD_NUMBER=$(arecord -l | grep -i respeaker | head -1 | sed 's/card \([0-9]\).*/\1/')
+    if [ -z "$CARD_NUMBER" ]; then
+        echo "Warning: No ReSpeaker device found. Audio will be disabled." >&2
+        return 1
+    else
+        echo "Found ReSpeaker at card $CARD_NUMBER" >&2
+        echo $CARD_NUMBER
+        return 0
+    fi
+}
+
+# Log function for service output
+log_message() {
+    echo "$(date +"%Y-%m-%d %H:%M:%S") - $1"
+}
+
+log_message "Starting audio encoder service..."
+
+# Check for ReSpeaker device
+RESPEAKER_CARD=$(find_respeaker_device | tail -n 1)
+AUDIO_AVAILABLE=$?
+
+# Audio pipeline (if ReSpeaker available)
+if [ $AUDIO_AVAILABLE -eq 0 ]; then
+    log_message "Adding audio stream from ReSpeaker (card $RESPEAKER_CARD) on port TARGET_PORT_PLACEHOLDER"
+    
+    # Main audio streaming loop with restart capability
+    while true; do
+        gst-launch-1.0 -e \
+            alsasrc device=hw:$RESPEAKER_CARD,0 do-timestamp=true ! \
+            audio/x-raw,format=S16LE,rate=16000,channels=6 ! \
+            audioconvert ! audioresample ! \
+            audio/x-raw,rate=48000,channels=2 ! \
+            opusenc bitrate=128000 ! \
+            rtpopuspay pt=111 ! \
+            udpsink host=127.0.0.1 port=TARGET_PORT_PLACEHOLDER sync=false
+        
+        # Check exit status
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -ne 0 ]; then
+            log_message "Audio pipeline exited with code $EXIT_CODE. Restarting in 5 seconds..."
+            sleep 5
+        else
+            log_message "Audio pipeline stopped normally"
+            break
+        fi
+    done
+else
+    log_message "No ReSpeaker audio device found - audio encoder disabled"
+    log_message "Service will keep running but audio streaming is inactive"
+    
+    # Keep the service running even without audio device
+    while true; do
+        sleep 60
+        log_message "Audio service running (no device detected)"
+    done
+fi
+EOF
+
+    # Replace the placeholder with actual port
+    sed -i "s/TARGET_PORT_PLACEHOLDER/${TARGET_PORT}/g" "$SCRIPT_PATH"
+
+    # Make script executable
+    chmod +x "$SCRIPT_PATH"
+    chown skycore:skycore "$SCRIPT_PATH"
+    
+    # Create systemd service file
+    SERVICE_FILE="/etc/systemd/system/skycore-audio.service"
+    
+    echo -e "${YELLOW}[⋯]${NC} Creating systemd service file at $SERVICE_FILE..."
+    
+    cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=SkyCore Audio Streaming Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+ExecStart=$SCRIPT_PATH
+Restart=on-failure
+RestartSec=10
+User=skycore
+Group=skycore
+# Add audio group for ALSA access
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Reload systemd to recognize new service
+    echo -e "${YELLOW}[⋯]${NC} Reloading systemd..."
+    systemctl daemon-reload
+    
+    # Enable service to start on boot
+    echo -e "${YELLOW}[⋯]${NC} Enabling audio service to start on boot..."
+    systemctl enable skycore-audio.service
+    
+    # Start the service
+    echo -e "${YELLOW}[⋯]${NC} Starting audio service..."
+    systemctl start skycore-audio.service
+    
+    # Check service status
+    sleep 3
+    if systemctl is-active --quiet skycore-audio.service; then
+        echo -e "${GREEN}[✔]${NC} Audio service started successfully"
+    else
+        echo -e "${RED}[✖]${NC} Failed to start audio service"
+        echo -e "${YELLOW}[⋯]${NC} Check logs with: systemctl status skycore-audio.service"
+        echo -e "${YELLOW}[⋯]${NC} Check logs with: journalctl -u skycore-audio.service -f"
+    fi
+    
+    echo -e "${GREEN}[✔]${NC} Audio service has been set up and will run on boot"
+    echo -e "${YELLOW}[⋯]${NC} Audio will be streamed to UDP port: ${TARGET_PORT}"
+    echo -e "${YELLOW}[⋯]${NC} You can control the service with:"
+    echo -e "  - systemctl start skycore-audio.service"
+    echo -e "  - systemctl stop skycore-audio.service"
+    echo -e "  - systemctl restart skycore-audio.service"
+    echo -e "  - journalctl -u skycore-audio.service -f  (view logs)"
 }
 
 # Function to update SkyCore to the latest version
@@ -1551,6 +1760,11 @@ elif [[ "$1" == "video-storage-service" ]]; then
     shift
     setup_video_storage_service "$@"
 
+elif [[ "$1" == "audio-service" ]]; then
+    # Setup audio streaming service
+    shift
+    setup_audio_service "$@"
+
 elif [[ "$1" == "help" ]]; then
     echo "Available commands:"
     echo "  skycore cli       - Start the SkyCore CLI"
@@ -1568,8 +1782,9 @@ elif [[ "$1" == "help" ]]; then
     echo "  skycore install   - Install skycore to the system"
     echo "  skycore update    - Update skycore to the latest version"
     echo "  skycore tty-setup - Set up TTY device permission rules"
-    echo "  skycore video-service [path] - Set up video streaming service to run on boot"
-    echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
+    echo "  skycore video-service [ip] [port] - Set up video streaming service to run on boot"
+    echo "  skycore video-storage-service [output_dir] [ip] - Set up video storage service to run on boot"
+    echo "  skycore audio-service [port] - Set up audio streaming service to run on boot"
     echo "  skycore utils     - Run utility commands"
     echo "    Available utilities:"
     echo "      boot_mmc      - Configure system to boot from SD card"
@@ -1602,8 +1817,9 @@ else
     echo "  skycore install   - Install skycore to the system"
     echo "  skycore update    - Update skycore to the latest version"
     echo "  skycore tty-setup - Set up TTY device permission rules"
-    echo "  skycore video-service [path] - Set up video streaming service to run on boot"
-    echo "  skycore video-storage-service [output_dir] [ip] [segment_duration] [max_files] - Set up video storage service to run on boot"
+    echo "  skycore video-service [ip] [port] - Set up video streaming service to run on boot"
+    echo "  skycore video-storage-service [output_dir] [ip] - Set up video storage service to run on boot"
+    echo "  skycore audio-service [port] - Set up audio streaming service to run on boot"
     echo "  skycore utils     - Run utility commands"
     echo "    Available utilities:"
     echo "      boot_mmc      - Configure system to boot from SD card"
