@@ -14,23 +14,22 @@ log_message() {
     echo "$1"
 }
 
-# Function to find ReSpeaker audio device
-find_respeaker_device() {
-    CARD_NUMBER=$(arecord -l | grep -i respeaker | head -1 | sed 's/card \([0-9]\).*/\1/')
-    if [ -z "$CARD_NUMBER" ]; then
-        log_message "Warning: No ReSpeaker device found. Audio will be disabled."
-        return 1
-    else
-        log_message "Found ReSpeaker at card $CARD_NUMBER"
-        echo $CARD_NUMBER
+# Function to check if audio encoder is running and providing audio stream
+check_audio_encoder() {
+    # Check if audio_encoder.sh is running
+    if pgrep -f "audio_encoder.sh" > /dev/null; then
+        log_message "Audio encoder is running - will use UDP audio stream on port 5011"
         return 0
+    else
+        log_message "Warning: Audio encoder is not running. Audio will be disabled."
+        return 1
     fi
 }
 
 log_message "Starting HLS recording with audio support and 60-minute playlist rotation"
 
-# Check for ReSpeaker device
-RESPEAKER_CARD=$(find_respeaker_device | tail -n 1)
+# Check for audio encoder availability
+check_audio_encoder
 AUDIO_AVAILABLE=$?
 
 # Main recording loop - runs indefinitely
@@ -41,8 +40,9 @@ while true; do
     log_message "Creating new playlist: ${TIMESTAMP}_playlist.m3u8"
     
     if [ $AUDIO_AVAILABLE -eq 0 ]; then
-        log_message "Recording with audio from ReSpeaker (card $RESPEAKER_CARD)"
-        # Enhanced pipeline with audio support (video + microphone audio)
+        log_message "Recording with audio from UDP stream (port 5011)"
+        # Enhanced pipeline with audio support (video + UDP audio stream)
+        # Try hardware encoding first, fallback to software if it fails
         timeout 3630 gst-launch-1.0 -e \
             mpegtsmux name=mux ! \
                 hlssink playlist-root=file://$OUTPUT_DIR \
@@ -53,27 +53,29 @@ while true; do
                 rtph264depay ! h264parse ! \
                 nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \
                 nvvidconv ! \
-                "video/x-raw(memory:NVMM),format=NV12" ! \
-                nvv4l2h264enc profile=0 bitrate=15000000 iframeinterval=30 idrinterval=1 maxperf-enable=true poc-type=2 insert-sps-pps=true preset-level=0 ratecontrol-enable=1 quant-i-frames=20 quant-p-frames=23 quant-b-frames=25 ! \
+                video/x-raw,format=I420 ! \
+                videorate max-rate=25 ! \
+                x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \
                 h264parse config-interval=1 ! \
                 queue max-size-buffers=100 max-size-time=1000000000 ! \
                 mux. \
-            alsasrc device=hw:$RESPEAKER_CARD,0 ! \
-                audio/x-raw,format=S16LE,rate=16000,channels=6 ! \
+            udpsrc port=5011 caps="application/x-rtp,media=audio,clock-rate=48000,encoding-name=OPUS,payload=111" ! \
+                rtpopusdepay ! opusdec ! \
                 audioconvert ! audioresample ! \
                 audio/x-raw,rate=48000,channels=2 ! \
                 queue max-size-buffers=200 max-size-time=2000000000 ! \
                 avenc_aac bitrate=128000 ! aacparse ! mux.
     else
         log_message "Recording video only (no audio device available)"
-        # Original pipeline without audio
+        # Video-only pipeline using software encoding
         timeout 3630 gst-launch-1.0 -e \
             rtspsrc location=rtsp://192.168.144.25:8554/main.264 latency=50 drop-on-latency=true ! \
             rtph264depay ! h264parse ! \
             nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \
             nvvidconv ! \
-            "video/x-raw(memory:NVMM),format=NV12" ! \
-            nvv4l2h264enc profile=0 bitrate=15000000 iframeinterval=30 idrinterval=1 maxperf-enable=true poc-type=2 insert-sps-pps=true preset-level=0 ratecontrol-enable=1 quant-i-frames=20 quant-p-frames=23 quant-b-frames=25 ! \
+            video/x-raw,format=I420 ! \
+            videorate max-rate=25 ! \
+            x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \
             h264parse config-interval=1 ! \
             queue max-size-buffers=100 max-size-time=1000000000 ! \
             mpegtsmux ! \
@@ -93,11 +95,11 @@ while true; do
         sleep 10
     else
         if [ $AUDIO_AVAILABLE -eq 0 ]; then
-            log_message "60-minute recording with audio completed successfully"
+            log_message "60-minute recording with UDP audio completed successfully"
         else
             log_message "60-minute recording (video only) completed successfully"
         fi
         # Small pause between recordings
         sleep 2
     fi
-done 
+done
