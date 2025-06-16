@@ -1289,6 +1289,7 @@ After=network.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/sleep 10
 ExecStart=$SCRIPT_PATH
 Restart=on-failure
 RestartSec=10
@@ -1307,7 +1308,7 @@ EOF
     echo -e "${YELLOW}[⋯]${NC} Enabling video service to start on boot..."
     systemctl enable skycore-video.service
     
-    # Start the service
+
     echo -e "${YELLOW}[⋯]${NC} Starting video service..."
     systemctl start skycore-video.service
     
@@ -1473,6 +1474,7 @@ After=skycore-audio.service
 
 [Service]
 Type=simple
+ExecStartPre=/bin/sleep 15
 ExecStart=$SCRIPT_PATH
 Restart=on-failure
 RestartSec=10
@@ -1493,7 +1495,6 @@ EOF
     echo -e "${YELLOW}[⋯]${NC} Enabling video storage service to start on boot..."
     systemctl enable skycore-video-storage.service
     
-    # Start the service
     echo -e "${YELLOW}[⋯]${NC} Starting video storage service..."
     systemctl start skycore-video-storage.service
     
