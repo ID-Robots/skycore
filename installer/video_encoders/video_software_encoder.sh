@@ -2,9 +2,8 @@
 gst-launch-1.0 -e \
     rtspsrc location=rtsp://192.168.144.25:8554/main.264 latency=50 drop-on-latency=true ! \
     rtph264depay ! h264parse ! \
-    nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \
-    video/x-raw\(memory:NVMM\),format=NV12 ! \
-    nvvidconv ! \
+    avdec_h264 ! \
+    videoconvert ! \
     video/x-raw,format=I420 ! \
     videorate max-rate=25 ! \
     x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \
