@@ -1407,11 +1407,8 @@ while true; do
                          location="\$OUTPUT_DIR/\${TIMESTAMP}_segment_%05d.ts" \\
             rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
                 rtph264depay ! h264parse ! \\
-                nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \\
-                nvvidconv ! \\
-                video/x-raw,format=I420 ! \\
-                videorate max-rate=25 ! \\
-                x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \\
+                avdec_h264 ! videoconvert ! \\
+                x264enc speed-preset=veryfast bitrate=12000 key-int-max=50 bframes=0 ! \\
                 h264parse config-interval=1 ! \\
                 queue max-size-buffers=100 max-size-time=1000000000 ! \\
                 mux. \\
@@ -1427,11 +1424,8 @@ while true; do
         timeout 3630 gst-launch-1.0 -e \\
             rtspsrc location=rtsp://${TARGET_IP}:8554/main.264 latency=50 drop-on-latency=true ! \\
             rtph264depay ! h264parse ! \\
-            nvv4l2decoder enable-max-performance=1 disable-dpb=1 ! \\
-            nvvidconv ! \\
-            video/x-raw,format=I420 ! \\
-            videorate max-rate=25 ! \\
-            x264enc tune=zerolatency speed-preset=ultrafast bitrate=2500 key-int-max=15 bframes=0 ! \\
+            avdec_h264 ! videoconvert ! \\
+            x264enc speed-preset=veryfast bitrate=12000 key-int-max=50 bframes=0 ! \\
             h264parse config-interval=1 ! \\
             queue max-size-buffers=100 max-size-time=1000000000 ! \\
             mpegtsmux ! \\
