@@ -1,6 +1,6 @@
 # SkyCore
 
-SkyCore CLI - A powerful command-line interface for managing your SkyHub devices.
+SkyCore CLI - A powerful command-line interface for managing your SkyHub devices!
 
 ## Documentation
 
